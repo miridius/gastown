@@ -59,7 +59,7 @@ func TestDiscoverRigAgents_UsesRigPrefix(t *testing.T) {
 		"bd-hook": {ID: "bd-hook", Title: "Pinned"},
 	}
 
-	agents := discoverRigAgents(map[string]bool{}, r, nil, allAgentBeads, allHookBeads, nil, true)
+	agents := discoverRigAgents(map[string]bool{}, r, nil, allAgentBeads, allHookBeads, nil)
 	if len(agents) != 1 {
 		t.Fatalf("discoverRigAgents() returned %d agents, want 1", len(agents))
 	}
@@ -117,7 +117,7 @@ func TestDiscoverRigAgents_ZombieSessionNotRunning(t *testing.T) {
 		"gt-gastown-witness": false, // zombie: tmux exists, agent dead
 	}
 
-	agents := discoverRigAgents(allSessions, r, nil, nil, nil, nil, true)
+	agents := discoverRigAgents(allSessions, r, nil, nil, nil, nil)
 	for _, a := range agents {
 		if a.Role == "witness" {
 			if a.Running {
@@ -145,7 +145,7 @@ func TestDiscoverRigAgents_MissingSessionNotRunning(t *testing.T) {
 	// Empty sessions map - no tmux sessions exist at all
 	allSessions := map[string]bool{}
 
-	agents := discoverRigAgents(allSessions, r, nil, nil, nil, nil, true)
+	agents := discoverRigAgents(allSessions, r, nil, nil, nil, nil)
 	for _, a := range agents {
 		if a.Role == "witness" {
 			if a.Running {

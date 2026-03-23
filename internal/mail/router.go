@@ -1565,6 +1565,91 @@ func (r *Router) GetMailbox(address string) (*Mailbox, error) {
 	return NewMailboxFromAddress(address, workDir), nil
 }
 
+// AgentMailInfo holds preloaded unread mail info for an agent.
+type AgentMailInfo struct {
+	UnreadCount  int
+	FirstSubject string
+}
+
+// BatchUnreadMailInfo queries unread mail counts for all agents in a single
+// SQL query, avoiding the per-agent subprocess storm. Returns a map from
+// normalized identity (e.g., "mayor/", "gastown/witness") to mail info.
+// This replaces N separate populateMailInfo calls (each spawning 4+ bd
+// subprocesses) with 2 SQL queries total (issues + wisps tables).
+func (r *Router) BatchUnreadMailInfo() map[string]*AgentMailInfo {
+	result := make(map[string]*AgentMailInfo)
+	beadsDir := r.resolveBeadsDir()
+	workDir := filepath.Dir(beadsDir)
+
+	// Query both issues and wisps tables for unread messages.
+	// A message is unread if:
+	// - It has the "gt:message" label
+	// - Its status is "open" or "hooked"
+	// - It does NOT have the "read" label and is NOT "closed"
+	//
+	// We run two separate queries (issues + wisps) because UNION ALL across
+	// different table schemas can be problematic in some Dolt versions.
+
+	// Query 1: issues table
+	issuesQuery := `SELECT i.assignee, i.title, i.created_at
+FROM issues i
+JOIN issue_labels l ON i.id = l.issue_id AND l.label = 'gt:message'
+LEFT JOIN issue_labels rl ON i.id = rl.issue_id AND rl.label = 'read'
+WHERE i.status IN ('open', 'hooked') AND rl.issue_id IS NULL
+ORDER BY i.assignee, i.created_at DESC`
+
+	r.collectBatchResults(result, workDir, beadsDir, issuesQuery)
+
+	// Query 2: wisps table (ephemeral messages)
+	wispsQuery := `SELECT w.assignee, w.title, w.created_at
+FROM wisps w
+JOIN wisp_labels l ON w.id = l.issue_id AND l.label = 'gt:message'
+LEFT JOIN wisp_labels rl ON w.id = rl.issue_id AND rl.label = 'read'
+WHERE w.status IN ('open', 'hooked') AND rl.issue_id IS NULL
+ORDER BY w.assignee, w.created_at DESC`
+
+	r.collectBatchResults(result, workDir, beadsDir, wispsQuery)
+
+	return result
+}
+
+// collectBatchResults runs a SQL query and accumulates results into the info map.
+func (r *Router) collectBatchResults(info map[string]*AgentMailInfo, workDir, beadsDir, query string) {
+	args := []string{"sql", "--json", query}
+	ctx, cancel := context.WithTimeout(context.Background(), bdReadTimeout)
+	defer cancel()
+
+	stdout, err := runBdCommand(ctx, args, workDir, beadsDir)
+	if err != nil {
+		return // Table may not exist yet
+	}
+	if !isJSON(stdout) {
+		return
+	}
+
+	var rows []struct {
+		Assignee  string `json:"assignee"`
+		Title     string `json:"title"`
+		CreatedAt string `json:"created_at"`
+	}
+	if err := json.Unmarshal(stdout, &rows); err != nil {
+		return
+	}
+
+	for _, row := range rows {
+		assignee := row.Assignee
+		if assignee == "" {
+			continue
+		}
+		entry, ok := info[assignee]
+		if !ok {
+			entry = &AgentMailInfo{FirstSubject: row.Title}
+			info[assignee] = entry
+		}
+		entry.UnreadCount++
+	}
+}
+
 // notifyRecipient sends a notification to a recipient's tmux session.
 //
 // Notification strategy (idle-aware):

@@ -760,8 +760,13 @@ func gatherStatus() (TownStatus, error) {
 
 	beadsWg.Wait()
 
-	// Create mail router for inbox lookups
+	// Create mail router and batch-fetch all unread mail counts in 2 SQL queries
+	// (issues + wisps tables) instead of spawning per-agent bd subprocesses.
 	mailRouter := mail.NewRouter(townRoot)
+	var batchMailInfo map[string]*mail.AgentMailInfo
+	if !statusFast {
+		batchMailInfo = mailRouter.BatchUnreadMailInfo()
+	}
 
 	// Load overseer config
 	var overseerInfo *OverseerInfo
@@ -772,11 +777,10 @@ func gatherStatus() (TownStatus, error) {
 			Username: overseerConfig.Username,
 			Source:   overseerConfig.Source,
 		}
-		// Get overseer mail count (skip in --fast mode)
+		// Get overseer mail count from batch results (skip in --fast mode)
 		if !statusFast {
-			if mailbox, err := mailRouter.GetMailbox("overseer"); err == nil {
-				_, unread, _ := mailbox.Count()
-				overseerInfo.UnreadMail = unread
+			if info, ok := batchMailInfo["overseer"]; ok {
+				overseerInfo.UnreadMail = info.UnreadCount
 			}
 		}
 	}
@@ -857,7 +861,7 @@ func gatherStatus() (TownStatus, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		status.Agents = discoverGlobalAgents(townRoot, allSessions, allAgentBeads, allHookBeads, mailRouter, statusFast)
+		status.Agents = discoverGlobalAgents(townRoot, allSessions, allAgentBeads, allHookBeads, batchMailInfo)
 	}()
 
 	// Process all rigs in parallel
@@ -900,7 +904,7 @@ func gatherStatus() (TownStatus, error) {
 			rigActiveHooks[idx] = activeHooks
 
 			// Discover runtime state for all agents in this rig
-			rs.Agents = discoverRigAgents(allSessions, r, rs.Crews, allAgentBeads, allHookBeads, mailRouter, statusFast)
+			rs.Agents = discoverRigAgents(allSessions, r, rs.Crews, allAgentBeads, allHookBeads, batchMailInfo)
 
 			// Get MQ summary if rig has a refinery
 			// Skip in --fast mode to avoid expensive bd queries
@@ -1539,7 +1543,7 @@ func discoverRigHooks(r *rig.Rig, crews []string) []AgentHookInfo {
 // allSessions is a preloaded map of tmux sessions for O(1) lookup.
 // allAgentBeads is a preloaded map of agent beads for O(1) lookup.
 // allHookBeads is a preloaded map of hook beads for O(1) lookup.
-func discoverGlobalAgents(townRoot string, allSessions map[string]bool, allAgentBeads map[string]*beads.Issue, allHookBeads map[string]*beads.Issue, mailRouter *mail.Router, skipMail bool) []AgentRuntime {
+func discoverGlobalAgents(townRoot string, allSessions map[string]bool, allAgentBeads map[string]*beads.Issue, allHookBeads map[string]*beads.Issue, batchMailInfo map[string]*mail.AgentMailInfo) []AgentRuntime {
 	// Get session names dynamically
 	mayorSession := getMayorSessionName()
 	deaconSession := getDeaconSessionName()
@@ -1611,10 +1615,8 @@ func discoverGlobalAgents(townRoot string, allSessions map[string]bool, allAgent
 				}
 			}
 
-			// Get mail info (skip if --fast)
-			if !skipMail {
-				populateMailInfo(&agent, mailRouter)
-			}
+			// Get mail info from preloaded batch results (O(1) map lookup)
+			populateMailInfoFromBatch(&agent, batchMailInfo)
 
 			agents[idx] = agent
 		}(i, def)
@@ -1624,20 +1626,32 @@ func discoverGlobalAgents(townRoot string, allSessions map[string]bool, allAgent
 	return agents
 }
 
-// populateMailInfo fetches unread mail count and first subject for an agent
-func populateMailInfo(agent *AgentRuntime, router *mail.Router) {
-	if router == nil {
+// populateMailInfoFromBatch populates agent mail info from preloaded batch results.
+// Uses O(1) map lookup instead of spawning bd subprocesses per agent.
+// The batch map keys are normalized identities (e.g., "mayor/", "gastown/witness").
+func populateMailInfoFromBatch(agent *AgentRuntime, batchInfo map[string]*mail.AgentMailInfo) {
+	if batchInfo == nil {
 		return
 	}
-	mailbox, err := router.GetMailbox(agent.Address)
-	if err != nil {
-		return
+	identity := mail.AddressToIdentity(agent.Address)
+	if info, ok := batchInfo[identity]; ok {
+		agent.UnreadMail = info.UnreadCount
+		agent.FirstSubject = info.FirstSubject
 	}
-	_, unread, _ := mailbox.Count()
-	agent.UnreadMail = unread
-	if unread > 0 {
-		if messages, err := mailbox.ListUnread(); err == nil && len(messages) > 0 {
-			agent.FirstSubject = messages[0].Subject
+	// Also check without trailing slash for town-level agents (legacy compat)
+	if identity == "mayor/" {
+		if info, ok := batchInfo["mayor"]; ok {
+			agent.UnreadMail += info.UnreadCount
+			if agent.FirstSubject == "" {
+				agent.FirstSubject = info.FirstSubject
+			}
+		}
+	} else if identity == "deacon/" {
+		if info, ok := batchInfo["deacon"]; ok {
+			agent.UnreadMail += info.UnreadCount
+			if agent.FirstSubject == "" {
+				agent.FirstSubject = info.FirstSubject
+			}
 		}
 	}
 }
@@ -1694,7 +1708,7 @@ type agentDef struct {
 // allSessions is a preloaded map of tmux sessions for O(1) lookup.
 // allAgentBeads is a preloaded map of agent beads for O(1) lookup.
 // allHookBeads is a preloaded map of hook beads for O(1) lookup.
-func discoverRigAgents(allSessions map[string]bool, r *rig.Rig, crews []string, allAgentBeads map[string]*beads.Issue, allHookBeads map[string]*beads.Issue, mailRouter *mail.Router, skipMail bool) []AgentRuntime {
+func discoverRigAgents(allSessions map[string]bool, r *rig.Rig, crews []string, allAgentBeads map[string]*beads.Issue, allHookBeads map[string]*beads.Issue, batchMailInfo map[string]*mail.AgentMailInfo) []AgentRuntime {
 	// Build list of all agents to discover
 	var defs []agentDef
 	townRoot := filepath.Dir(r.Path)
@@ -1789,10 +1803,8 @@ func discoverRigAgents(allSessions map[string]bool, r *rig.Rig, crews []string, 
 				}
 			}
 
-			// Get mail info (skip if --fast)
-			if !skipMail {
-				populateMailInfo(&agent, mailRouter)
-			}
+			// Get mail info from preloaded batch results (O(1) map lookup)
+			populateMailInfoFromBatch(&agent, batchMailInfo)
 
 			agents[idx] = agent
 		}(i, def)

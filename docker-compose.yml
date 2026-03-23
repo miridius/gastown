@@ -32,7 +32,7 @@ services:
       - ${FOLDER}:/gt
     ports:
       - "${DASHBOARD_PORT:-8080}:8080"
-    command: sleep infinity
+    command: sh -c "gt up && gt dashboard"
 
     # Exec into the container with: docker compose exec gastown zsh
 

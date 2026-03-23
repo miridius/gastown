@@ -50,6 +50,16 @@ func TestDefaultLifecycleConfig(t *testing.T) {
 	if p.DoctorDog == nil || !p.DoctorDog.Enabled {
 		t.Error("expected doctor_dog to be enabled")
 	}
+	if p.DoctorDog.IntervalStr != "10m" {
+		t.Errorf("expected doctor_dog interval 10m, got %s", p.DoctorDog.IntervalStr)
+	}
+
+	if p.Deacon == nil || !p.Deacon.Enabled {
+		t.Error("expected deacon to be enabled")
+	}
+	if p.Deacon.Interval != "10m" {
+		t.Errorf("expected deacon interval 10m, got %s", p.Deacon.Interval)
+	}
 
 	if p.JsonlGitBackup == nil || !p.JsonlGitBackup.Enabled {
 		t.Error("expected jsonl_git_backup to be enabled")
@@ -166,6 +176,7 @@ func TestEnsureLifecycleDefaults_FullyConfigured(t *testing.T) {
 			ScheduledMaintenance: &ScheduledMaintenanceConfig{Enabled: false, Threshold: &threshold},
 			MainBranchTest:       &MainBranchTestConfig{Enabled: false},
 			Handler:              &PatrolConfig{Enabled: false},
+			Deacon:               &PatrolConfig{Enabled: false},
 		},
 	}
 
@@ -288,7 +299,7 @@ func TestEnsureLifecycleConfigFile_ProductionScenario(t *testing.T) {
 		Type:    "daemon-patrol-config",
 		Version: 1,
 		Patrols: &PatrolsConfig{
-			Deacon:   &PatrolConfig{Enabled: true, Interval: "5m", Agent: "deacon"},
+			Deacon:   &PatrolConfig{Enabled: true, Interval: "10m", Agent: "deacon"},
 			Refinery: &PatrolConfig{Enabled: true, Interval: "5m", Agent: "refinery"},
 			Witness:  &PatrolConfig{Enabled: true, Interval: "5m", Agent: "witness"},
 			DoltBackup: &DoltBackupConfig{Enabled: false},

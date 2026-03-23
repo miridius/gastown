@@ -7,7 +7,7 @@ package daemon
 //   - Wisp Reaper (DECAY): every 30m, delete closed wisps after 7d
 //   - Compactor Dog (COMPACT): every 24h, threshold 2000 commits
 //   - Checkpoint Dog: every 10m, auto-commit dirty polecat worktrees
-//   - Doctor Dog (health): every 5m
+//   - Doctor Dog (health): every 10m
 //   - JSONL Git Backup: every 15m
 //   - Dolt Filesystem Backup: every 15m
 //   - Scheduled Maintenance (FLATTEN): daily at 03:00, threshold 1000
@@ -36,7 +36,12 @@ func DefaultLifecycleConfig() *DaemonPatrolConfig {
 			},
 			DoctorDog: &DoctorDogConfig{
 				Enabled:     true,
-				IntervalStr: "5m",
+				IntervalStr: "10m",
+			},
+			Deacon: &PatrolConfig{
+				Enabled:  true,
+				Interval: "10m",
+				Agent:    "deacon",
 			},
 			JsonlGitBackup: &JsonlGitBackupConfig{
 				Enabled:     true,
@@ -120,6 +125,10 @@ func EnsureLifecycleDefaults(config *DaemonPatrolConfig) bool {
 	}
 	if p.Handler == nil {
 		p.Handler = d.Handler
+		changed = true
+	}
+	if p.Deacon == nil {
+		p.Deacon = d.Deacon
 		changed = true
 	}
 

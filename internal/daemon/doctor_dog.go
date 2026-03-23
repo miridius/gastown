@@ -9,7 +9,7 @@ import (
 
 // Operational constants — timeouts needed to perform checks.
 const (
-	defaultDoctorDogInterval = 5 * time.Minute
+	defaultDoctorDogInterval = 10 * time.Minute
 )
 
 // Default advisory thresholds — used for recommendations in the report.
@@ -67,7 +67,7 @@ func doctorDogThresholds(config *DaemonPatrolConfig) (latencyMs float64, orphanC
 	return
 }
 
-// doctorDogInterval returns the configured interval, or the default (5m).
+// doctorDogInterval returns the configured interval, or the default (10m).
 func doctorDogInterval(config *DaemonPatrolConfig) time.Duration {
 	if config != nil && config.Patrols != nil && config.Patrols.DoctorDog != nil {
 		if config.Patrols.DoctorDog.IntervalStr != "" {

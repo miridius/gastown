@@ -677,7 +677,7 @@ func TestResolveMayorRuntime(t *testing.T) {
 				if sessionName != "hq-mayor" || key != "GT_AGENT" {
 					t.Fatalf("unexpected session env lookup: %s %s", sessionName, key)
 				}
-				return "claude-sonnet", nil
+				return "claude-opus-4-6", nil
 			},
 			setup: func(t *testing.T, townRoot string) {
 				t.Helper()
@@ -686,7 +686,7 @@ func TestResolveMayorRuntime(t *testing.T) {
 				}
 				t.Setenv("GT_COST_TIER", "economy")
 			},
-			wantRuntime: "claude/sonnet",
+			wantRuntime: "claude/claude-opus-4-6",
 		},
 		{
 			name: "uses provider only role agent alias",

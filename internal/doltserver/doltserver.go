@@ -1266,6 +1266,9 @@ behavior:
   auto_gc_behavior:
     enable: true
     archive_level: 1
+
+system_variables:
+  dolt_stats_paused: 1
 `,
 		config.LogLevel,
 		config.Port,

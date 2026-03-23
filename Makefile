@@ -1,4 +1,4 @@
-.PHONY: build desktop-build desktop-run install safe-install check-forward-only clean test test-e2e-container check-up-to-date
+.PHONY: build desktop-build desktop-run install safe-install check-forward-only clean test test-e2e-container check-up-to-date docker-build docker-rebuild
 
 BINARY := gt
 BINARY_DESKTOP := gt-desktop
@@ -138,6 +138,17 @@ safe-install: check-up-to-date check-forward-only build
 	done
 	@echo "Installed $(BINARY) to $(INSTALL_DIR)/$(BINARY) (daemon NOT restarted)"
 	@echo "Sessions will pick up new binary on next cycle."
+
+# Build the Docker image (uses cache)
+docker-build:
+	docker compose build
+
+# Rebuild the Docker image from scratch (no cache).
+# Use this after significant changes to main to bake in the latest gt binary.
+# The image embeds the gt binary at build time — without a rebuild, the container
+# relies on the entrypoint self-heal which rebuilds from source on startup.
+docker-rebuild:
+	docker compose build --no-cache
 
 clean:
 	rm -f $(BUILD_DIR)/$(BINARY)

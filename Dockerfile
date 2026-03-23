@@ -1,5 +1,10 @@
 # Run with
 # docker build -t gastown:latest -f Dockerfile .
+#
+# Rebuild the image whenever gastown main advances significantly to bake in
+# the latest gt binary. Use `make docker-rebuild` for a clean build.
+# Between rebuilds, the entrypoint self-heals by detecting version drift
+# and rebuilding from the mounted source tree on startup.
 FROM docker/sandbox-templates:claude-code
 
 ARG GO_VERSION=1.25.6

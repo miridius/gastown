@@ -1519,6 +1519,11 @@ func Start(townRoot string) error {
 	cmd.Stdin = nil
 	setProcessGroup(cmd)
 
+	// Limit Dolt to 1 OS thread. Dolt 1.84 has a CPU regression where the Go
+	// runtime sustains 200-250% CPU on ARM64 even at idle. GOMAXPROCS=1 brings
+	// it down to ~35% with no observable latency penalty. (gt-hi2)
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
+
 	if err := cmd.Start(); err != nil {
 		if closeErr := logFile.Close(); closeErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to close dolt log file: %v\n", closeErr)

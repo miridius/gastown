@@ -812,6 +812,11 @@ func (m *DoltServerManager) startLocked() error {
 	// Detach from this process group so it survives daemon restart
 	setSysProcAttr(cmd)
 
+	// Limit Dolt to 1 OS thread. Dolt 1.84 has a CPU regression where the Go
+	// runtime sustains 200-250% CPU on ARM64 even at idle. GOMAXPROCS=1 brings
+	// it down to ~35% with no observable latency penalty. (gt-hi2)
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
+
 	if err := cmd.Start(); err != nil {
 		if closeErr := logFile.Close(); closeErr != nil {
 			m.logger("Warning: failed to close dolt log file: %v", closeErr)

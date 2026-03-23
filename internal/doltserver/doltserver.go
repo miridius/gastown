@@ -1576,6 +1576,13 @@ func Start(townRoot string) error {
 		}
 
 		if err := CheckServerReachable(townRoot); err == nil {
+			// Disable auto-stats to prevent sustained CPU usage from
+			// stats rescanning all databases every 30 seconds.
+			// This is a session-level global that doesn't survive restarts,
+			// so we must set it every time the server starts.
+			if err := disableAutoStats(config); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to disable Dolt auto-stats: %v\n", err)
+			}
 			return nil // Server is up and accepting connections
 		} else {
 			lastErr = err
@@ -1584,6 +1591,32 @@ func Start(townRoot string) error {
 
 	totalTimeout := time.Duration(dbCount) * 5 * time.Second
 	return fmt.Errorf("Dolt server process started (PID %d) but not accepting connections after %v (%d databases × 5s): %w\nCheck logs with: gt dolt logs", cmd.Process.Pid, totalTimeout, dbCount, lastErr)
+}
+
+// disableAutoStats connects to the running Dolt server and pauses the
+// automatic statistics collection job. Dolt's auto-stats rescans all databases
+// every 30 seconds; with multiple databases this causes sustained 100%+ CPU.
+// The setting is session-scoped (@@GLOBAL) and does not survive server restarts,
+// so it must be applied after every start.
+func disableAutoStats(config *Config) error {
+	dsn := fmt.Sprintf("%s@tcp(%s:%d)/", config.userDSN(), config.EffectiveHost(), config.Port)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return fmt.Errorf("opening connection: %w", err)
+	}
+	defer db.Close()
+
+	db.SetConnMaxLifetime(5 * time.Second)
+	db.SetMaxOpenConns(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = db.ExecContext(ctx, "SET @@GLOBAL.dolt_stats_paused = 1")
+	if err != nil {
+		return fmt.Errorf("SET @@GLOBAL.dolt_stats_paused = 1: %w", err)
+	}
+	return nil
 }
 
 // cleanupStaleDoltLock removes a stale Dolt LOCK file if no process holds it.

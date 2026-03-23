@@ -5135,18 +5135,28 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		}
 	})
 
-	t.Run("economy tier polecat returns handled with nil rc (use default)", func(t *testing.T) {
+	t.Run("economy tier polecat gets opus-4-6", func(t *testing.T) {
 		t.Setenv("GT_COST_TIER", "economy")
 		rc, handled := tryResolveFromEphemeralTier("polecat")
 		if !handled {
-			t.Error("expected handled=true for polecat in economy tier (tier manages this role)")
+			t.Fatal("expected handled=true for polecat in economy tier")
 		}
-		if rc != nil {
-			t.Errorf("expected nil rc for polecat in economy tier (should use default), got %+v", rc)
+		if rc == nil {
+			t.Fatal("expected RuntimeConfig for polecat in economy tier")
+		}
+		found := false
+		for i, arg := range rc.Args {
+			if arg == "--model" && i+1 < len(rc.Args) && rc.Args[i+1] == "claude-opus-4-6" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Args %v missing --model claude-opus-4-6", rc.Args)
 		}
 	})
 
-	t.Run("economy tier mayor gets sonnet", func(t *testing.T) {
+	t.Run("economy tier mayor gets opus-4-6", func(t *testing.T) {
 		t.Setenv("GT_COST_TIER", "economy")
 		rc, handled := tryResolveFromEphemeralTier("mayor")
 		if !handled {
@@ -5157,19 +5167,41 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		}
 		found := false
 		for i, arg := range rc.Args {
-			if arg == "--model" && i+1 < len(rc.Args) && rc.Args[i+1] == "sonnet" {
+			if arg == "--model" && i+1 < len(rc.Args) && rc.Args[i+1] == "claude-opus-4-6" {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("Args %v missing --model sonnet", rc.Args)
+			t.Errorf("Args %v missing --model claude-opus-4-6", rc.Args)
 		}
 	})
 
-	t.Run("standard tier returns handled with nil rc for all roles", func(t *testing.T) {
+	t.Run("standard tier mayor/polecat get opus-4-6, others use default", func(t *testing.T) {
 		t.Setenv("GT_COST_TIER", "standard")
-		for _, role := range []string{"mayor", "deacon", "witness", "refinery", "polecat", "crew"} {
+		// Mayor and polecat should get opus-4-6
+		for _, role := range []string{"mayor", "polecat"} {
+			rc, handled := tryResolveFromEphemeralTier(role)
+			if !handled {
+				t.Errorf("standard tier should return handled=true for %s", role)
+			}
+			if rc == nil {
+				t.Errorf("standard tier should return RuntimeConfig for %s (opus-4-6)", role)
+				continue
+			}
+			found := false
+			for i, arg := range rc.Args {
+				if arg == "--model" && i+1 < len(rc.Args) && rc.Args[i+1] == "claude-opus-4-6" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("standard tier %s: Args %v missing --model claude-opus-4-6", role, rc.Args)
+			}
+		}
+		// Other roles should use default (nil rc)
+		for _, role := range []string{"deacon", "witness", "refinery", "crew"} {
 			rc, handled := tryResolveFromEphemeralTier(role)
 			if !handled {
 				t.Errorf("standard tier should return handled=true for %s", role)

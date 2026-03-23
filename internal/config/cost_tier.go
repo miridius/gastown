@@ -46,36 +46,37 @@ var TierManagedRoles = []string{"mayor", "deacon", "witness", "refinery", "polec
 func CostTierRoleAgents(tier CostTier) map[string]string {
 	switch tier {
 	case TierStandard:
-		// Explicit mapping for all managed roles — empty value means "use default (opus)"
+		// Explicit mapping for all managed roles — empty value means "use default"
+		// Mayor and polecat are pinned to opus-4-6 (high-judgment and implementation roles)
 		// Boot and dog are utility roles — always haiku even on standard tier
 		return map[string]string{
-			"mayor":    "",
+			"mayor":    "claude-opus-4-6",
 			"deacon":   "",
 			"witness":  "",
 			"refinery": "",
-			"polecat":  "",
+			"polecat":  "claude-opus-4-6",
 			"crew":     "",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
 		}
 	case TierEconomy:
 		return map[string]string{
-			"mayor":    "claude-sonnet",
+			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
 			"witness":  "claude-sonnet",
 			"refinery": "claude-sonnet",
-			"polecat":  "", // use default (opus)
-			"crew":     "", // use default (opus)
+			"polecat":  "claude-opus-4-6",
+			"crew":     "", // use default
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
 		}
 	case TierBudget:
 		return map[string]string{
-			"mayor":    "claude-sonnet",
+			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
 			"witness":  "claude-haiku",
 			"refinery": "claude-haiku",
-			"polecat":  "claude-sonnet",
+			"polecat":  "claude-opus-4-6",
 			"crew":     "claude-sonnet",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -91,14 +92,26 @@ func CostTierRoleAgents(tier CostTier) map[string]string {
 func CostTierAgents(tier CostTier) map[string]*RuntimeConfig {
 	switch tier {
 	case TierStandard:
-		return map[string]*RuntimeConfig{}
+		return map[string]*RuntimeConfig{
+			"claude-opus-4-6": claudeOpus46Preset(),
+			"claude-haiku":    claudeHaikuPreset(),
+		}
 	case TierEconomy, TierBudget:
 		return map[string]*RuntimeConfig{
-			"claude-sonnet": claudeSonnetPreset(),
-			"claude-haiku":  claudeHaikuPreset(),
+			"claude-opus-4-6": claudeOpus46Preset(),
+			"claude-sonnet":   claudeSonnetPreset(),
+			"claude-haiku":    claudeHaikuPreset(),
 		}
 	default:
 		return nil
+	}
+}
+
+// claudeOpus46Preset returns a RuntimeConfig for Claude Opus 4.6.
+func claudeOpus46Preset() *RuntimeConfig {
+	return &RuntimeConfig{
+		Command: "claude",
+		Args:    []string{"--dangerously-skip-permissions", "--model", "claude-opus-4-6"},
 	}
 }
 
@@ -152,14 +165,21 @@ func ApplyCostTier(settings *TownSettings, tier CostTier) error {
 		settings.Agents = make(map[string]*RuntimeConfig)
 	}
 
-	// For standard tier, remove tier-specific agent presets if they exist
-	if tier == TierStandard {
-		delete(settings.Agents, "claude-sonnet")
-		delete(settings.Agents, "claude-haiku")
-	} else {
-		// Add/update tier-specific agent presets
-		for name, rc := range agents {
-			settings.Agents[name] = rc
+	// Determine which tier-specific agents this tier needs vs. doesn't need
+	tierAgentNames := map[string]bool{
+		"claude-opus-4-6": false,
+		"claude-sonnet":   false,
+		"claude-haiku":    false,
+	}
+	for name := range agents {
+		tierAgentNames[name] = true
+	}
+	// Add agents this tier needs, remove ones it doesn't
+	for name, needed := range tierAgentNames {
+		if needed {
+			settings.Agents[name] = agents[name]
+		} else {
+			delete(settings.Agents, name)
 		}
 	}
 
@@ -212,11 +232,11 @@ func tierRolesMatch(actual, expected map[string]string) bool {
 func TierDescription(tier CostTier) string {
 	switch tier {
 	case TierStandard:
-		return "All roles use Opus (highest quality)"
+		return "Mayor and polecats use Opus 4.6, other roles use default (highest quality)"
 	case TierEconomy:
-		return "Patrol roles use Sonnet/Haiku, workers use Opus"
+		return "Mayor and polecats use Opus 4.6, patrol roles use Sonnet/Haiku"
 	case TierBudget:
-		return "Patrol roles use Haiku, workers use Sonnet"
+		return "Mayor and polecats use Opus 4.6, patrol roles use Haiku, crew uses Sonnet"
 	default:
 		return "Unknown tier"
 	}
@@ -234,7 +254,7 @@ func FormatTierRoleTable(tier CostTier) string {
 	for _, role := range roles {
 		agent := roleAgents[role]
 		if agent == "" {
-			agent = "(default/opus)"
+			agent = "(default)"
 		}
 		lines = append(lines, fmt.Sprintf("  %-10s %s", role+":", agent))
 	}

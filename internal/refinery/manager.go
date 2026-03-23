@@ -560,20 +560,33 @@ type PostMergeResult struct {
 	SourceIssueClosed   bool
 	SourceIssueID       string
 	SourceIssueNotFound bool // true if source issue doesn't exist (already closed or invalid)
+	MergedSHA           string // commit SHA verified on target branch (for audit trail)
 }
 
 // PostMerge performs post-merge cleanup for a successfully merged MR.
 // It closes the MR bead and its source issue. Branch deletion is handled
 // by the caller since the Manager doesn't have git access.
-func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
+//
+// mergedSHA is optional: if provided, it is included in the close reason
+// for audit trail (e.g., "Merged in mr-123 (commit: abc1234)").
+// The caller is responsible for verifying the SHA is on the target branch
+// before calling PostMerge — see VerifyMergeOnMain.
+func (m *Manager) PostMerge(idOrBranch string, mergedSHA ...string) (*PostMergeResult, error) {
 	mr, err := m.FindMR(idOrBranch)
 	if err != nil {
 		return nil, err
 	}
 
+	// Extract optional merged SHA for audit trail
+	sha := ""
+	if len(mergedSHA) > 0 && mergedSHA[0] != "" {
+		sha = mergedSHA[0]
+	}
+
 	result := &PostMergeResult{
 		MR:            mr,
 		SourceIssueID: mr.IssueID,
+		MergedSHA:     sha,
 	}
 
 	b := beads.New(m.rig.BeadsPath())
@@ -598,6 +611,9 @@ func (m *Manager) PostMerge(idOrBranch string) (*PostMergeResult, error) {
 	// matching how gt done handles closures for the no-MR path.
 	if mr.IssueID != "" {
 		closeReason := fmt.Sprintf("Merged in %s", mr.ID)
+		if sha != "" {
+			closeReason = fmt.Sprintf("Merged in %s (commit: %s)", mr.ID, sha)
+		}
 		if err := b.ForceCloseWithReason(closeReason, mr.IssueID); err != nil {
 			// Check if already closed (by polecat's gt done) — that's fine
 			if issue, showErr := b.Show(mr.IssueID); showErr == nil && beads.IssueStatus(issue.Status).IsTerminal() {
@@ -627,6 +643,35 @@ func (m *Manager) notifyWorkerRejected(mr *MergeRequest, reason string) {
 	if err := nudgeCmd.Run(); err != nil {
 		log.Printf("warning: nudging worker about rejection for %s: %v", mr.IssueID, err)
 	}
+}
+
+// VerifyMergeOnMain checks that the tip of a branch is reachable from the
+// target branch (usually origin/main). Returns the branch tip SHA on success.
+// This MUST be called before PostMerge to prevent closing beads for code
+// that never actually landed on the target branch.
+//
+// The caller should fetch origin before calling this to ensure refs are current.
+func VerifyMergeOnMain(gitClient interface {
+	Rev(ref string) (string, error)
+	IsAncestor(ancestor, descendant string) (bool, error)
+}, branch, targetRef string) (string, error) {
+	// Resolve the branch tip SHA
+	branchSHA, err := gitClient.Rev(branch)
+	if err != nil {
+		return "", fmt.Errorf("resolving branch %s: %w", branch, err)
+	}
+	branchSHA = strings.TrimSpace(branchSHA)
+
+	// Verify the branch tip is an ancestor of (i.e., reachable from) the target
+	isAncestor, err := gitClient.IsAncestor(branchSHA, targetRef)
+	if err != nil {
+		return "", fmt.Errorf("checking merge ancestry: %w", err)
+	}
+	if !isAncestor {
+		return "", fmt.Errorf("branch %s (commit %s) is NOT reachable from %s — merge did not land", branch, branchSHA, targetRef)
+	}
+
+	return branchSHA, nil
 }
 
 // Town root is computed in Start() as filepath.Dir(m.rig.Path) and passed

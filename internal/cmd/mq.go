@@ -506,13 +506,43 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Look up the MR to get its branch before doing verification
+	mr, err := mgr.FindMR(mrID)
+	if err != nil {
+		return fmt.Errorf("finding MR: %w", err)
+	}
+
+	// Verify the branch's commits actually landed on the target branch.
+	// Without this check, we could close beads for code that never merged.
+	var mergedSHA string
+	if mr.Branch != "" {
+		rigGit, gitErr := getRigGit(r.Path)
+		if gitErr != nil {
+			return fmt.Errorf("cannot verify merge (no git access): %w", gitErr)
+		}
+
+		// Fetch to ensure we have the latest remote state
+		_ = rigGit.Fetch("origin")
+
+		targetRef := "origin/" + mr.TargetBranch
+		if mr.TargetBranch == "" {
+			targetRef = "origin/main"
+		}
+
+		sha, verifyErr := refinery.VerifyMergeOnMain(rigGit, "origin/"+mr.Branch, targetRef)
+		if verifyErr != nil {
+			return fmt.Errorf("merge verification failed for %s: %w — bead NOT closed", mr.ID, verifyErr)
+		}
+		mergedSHA = sha
+		fmt.Printf("  %s Merge verified: %s on %s\n", style.Success.Render("✓"), mergedSHA[:min(12, len(mergedSHA))], targetRef)
+	}
+
 	// Run beads-level cleanup (close MR bead + source issue)
-	result, err := mgr.PostMerge(mrID)
+	result, err := mgr.PostMerge(mrID, mergedSHA)
 	if err != nil {
 		return fmt.Errorf("post-merge cleanup: %w", err)
 	}
 
-	mr := result.MR
 	fmt.Printf("%s Post-merge: %s\n", style.Bold.Render("✓"), mr.ID)
 	fmt.Printf("  Branch: %s\n", mr.Branch)
 	fmt.Printf("  Worker: %s\n", mr.Worker)
@@ -551,22 +581,22 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get git client for the rig
-	rigGit, err := getRigGit(r.Path)
-	if err != nil {
-		fmt.Printf("  %s branch delete: %v\n", style.Warning.Render("⚠"), err)
+	// Get git client for the rig (may already exist from verification step)
+	branchGit, gitErr := getRigGit(r.Path)
+	if gitErr != nil {
+		fmt.Printf("  %s branch delete: %v\n", style.Warning.Render("⚠"), gitErr)
 		return nil // non-fatal: beads cleanup succeeded
 	}
 
 	// Delete remote branch
-	if err := rigGit.DeleteRemoteBranch("origin", mr.Branch); err != nil {
+	if err := branchGit.DeleteRemoteBranch("origin", mr.Branch); err != nil {
 		fmt.Printf("  %s remote branch delete: %v\n", style.Warning.Render("⚠"), err)
 	} else {
 		fmt.Printf("  %s Deleted remote branch: %s\n", style.Success.Render("✓"), mr.Branch)
 	}
 
 	// Also clean up the local tracking ref if it exists
-	if err := rigGit.DeleteBranch(mr.Branch, true); err != nil {
+	if err := branchGit.DeleteBranch(mr.Branch, true); err != nil {
 		// Not a warning — local branch often doesn't exist
 		_ = err
 	} else {

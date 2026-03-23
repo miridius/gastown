@@ -1,9 +1,11 @@
 package refinery
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,5 +302,89 @@ func TestManager_PostMerge_NotFound(t *testing.T) {
 	_, err := mgr.PostMerge("nonexistent-mr-id")
 	if err == nil {
 		t.Error("PostMerge() expected error for nonexistent MR")
+	}
+}
+
+// mockGitClient implements the interface needed by VerifyMergeOnMain.
+type mockGitClient struct {
+	revResults      map[string]string
+	revErrors       map[string]error
+	ancestorResults map[string]bool
+	ancestorErrors  map[string]error
+}
+
+func (m *mockGitClient) Rev(ref string) (string, error) {
+	if err, ok := m.revErrors[ref]; ok {
+		return "", err
+	}
+	if sha, ok := m.revResults[ref]; ok {
+		return sha, nil
+	}
+	return "", fmt.Errorf("unknown ref: %s", ref)
+}
+
+func (m *mockGitClient) IsAncestor(ancestor, descendant string) (bool, error) {
+	key := ancestor + ":" + descendant
+	if err, ok := m.ancestorErrors[key]; ok {
+		return false, err
+	}
+	if result, ok := m.ancestorResults[key]; ok {
+		return result, nil
+	}
+	return false, nil
+}
+
+func TestVerifyMergeOnMain_Success(t *testing.T) {
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-abc": "abc123def456\n",
+		},
+		ancestorResults: map[string]bool{
+			"abc123def456:origin/main": true,
+		},
+	}
+
+	sha, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-abc", "origin/main")
+	if err != nil {
+		t.Fatalf("VerifyMergeOnMain() unexpected error: %v", err)
+	}
+	if sha != "abc123def456" {
+		t.Errorf("VerifyMergeOnMain() SHA = %q, want %q", sha, "abc123def456")
+	}
+}
+
+func TestVerifyMergeOnMain_NotMerged(t *testing.T) {
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-abc": "abc123def456\n",
+		},
+		ancestorResults: map[string]bool{
+			"abc123def456:origin/main": false,
+		},
+	}
+
+	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-abc", "origin/main")
+	if err == nil {
+		t.Fatal("VerifyMergeOnMain() expected error for unmerged branch")
+	}
+	if !strings.Contains(err.Error(), "NOT reachable") {
+		t.Errorf("VerifyMergeOnMain() error = %q, want 'NOT reachable' substring", err.Error())
+	}
+}
+
+func TestVerifyMergeOnMain_BranchNotFound(t *testing.T) {
+	client := &mockGitClient{
+		revResults: map[string]string{},
+		revErrors: map[string]error{
+			"origin/polecat/test/gone": fmt.Errorf("unknown revision"),
+		},
+	}
+
+	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gone", "origin/main")
+	if err == nil {
+		t.Fatal("VerifyMergeOnMain() expected error for missing branch")
+	}
+	if !strings.Contains(err.Error(), "resolving branch") {
+		t.Errorf("VerifyMergeOnMain() error = %q, want 'resolving branch' substring", err.Error())
 	}
 }

@@ -1264,8 +1264,8 @@ data_dir: "%s"
 behavior:
   dolt_transaction_commit: false
   auto_gc_behavior:
-    enable: true
-    archive_level: 1
+    enable: false
+    archive_level: 0
 
 system_variables:
   dolt_stats_paused: 1
@@ -1509,6 +1509,7 @@ func Start(townRoot string) error {
 	}
 	args := []string{"sql-server", "--config", configPath}
 	cmd := exec.Command("dolt", args...)
+	cmd.Env = append(os.Environ(), "GOMAXPROCS=1", "GOGC=200")
 	cmd.Dir = config.DataDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile

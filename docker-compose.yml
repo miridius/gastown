@@ -32,7 +32,15 @@ services:
       - ${FOLDER}:/gt
     ports:
       - "${DASHBOARD_PORT:-8080}:8080"
-    command: sh -c "gt up && gt dashboard"
+    command: >-
+      sh -c "gt up && while true; do gt dashboard; echo 'Dashboard exited ($?), restarting in 2s...'; sleep 2; done"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
     # Exec into the container with: docker compose exec gastown zsh
 

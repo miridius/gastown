@@ -18,6 +18,7 @@ Complete setup guide for Gas Town multi-agent orchestrator.
 | Tool | Version | Check | Install |
 |------|---------|-------|---------|
 | **tmux** | 3.0+ | `tmux -V` | See below |
+| **cgroup-wrap** | latest | `cgroup-wrap --version` | See below |
 | **Claude Code** (default) | latest | `claude --version` | See [claude.ai/claude-code](https://claude.ai/claude-code) |
 | **Codex CLI** (optional) | latest | `codex --version` | See [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli) |
 | **OpenCode CLI** (optional) | latest | `opencode --version` | See [opencode.ai](https://opencode.ai) |
@@ -68,6 +69,26 @@ sudo dnf install -y git golang
 sudo dnf install -y tmux
 ```
 
+### cgroup-wrap (Optional — CPU Isolation for Workers)
+
+`cgroup-wrap` caps CPU usage per agent process using Linux cgroups, preventing
+a runaway worker (e.g., during Dolt compaction) from saturating all cores.
+
+All cost tiers automatically wrap worker roles (witness, refinery, polecat) with
+`cgroup-wrap`. If `cgroup-wrap` is not installed, use unwrapped agent presets in
+your `settings/config.json` instead.
+
+**Requirements:** Linux with cgroups v2 enabled. Not available on macOS (use
+unwrapped presets on macOS).
+
+```bash
+# Install cgroup-wrap
+go install github.com/steveyegge/gastown/cmd/cgroup-wrap@latest
+
+# Verify
+cgroup-wrap --version
+```
+
 ### Verify Prerequisites
 
 ```bash
@@ -76,6 +97,7 @@ go version        # Should show go1.24 or higher
 git --version     # Should show 2.20 or higher
 dolt version      # Should show 1.82.4 or higher
 tmux -V           # (Optional) Should show 3.0 or higher
+cgroup-wrap --version  # (Optional) For CPU-capped worker agents
 ```
 
 ## Installing Gas Town

@@ -44,7 +44,7 @@ func TestIsValidTier(t *testing.T) {
 func TestCostTierRoleAgents(t *testing.T) {
 	t.Parallel()
 
-	t.Run("standard maps mayor/polecat to opus-4-6, boot/dog to haiku", func(t *testing.T) {
+	t.Run("standard maps mayor to opus-4-6, workers to capped opus-4-6, boot/dog to haiku", func(t *testing.T) {
 		t.Parallel()
 		ra := CostTierRoleAgents(TierStandard)
 		if ra == nil {
@@ -56,9 +56,9 @@ func TestCostTierRoleAgents(t *testing.T) {
 		expected := map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "",
-			"witness":  "",
-			"refinery": "",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-opus-4-6-capped",
+			"refinery": "claude-opus-4-6-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"crew":     "",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -72,7 +72,7 @@ func TestCostTierRoleAgents(t *testing.T) {
 		}
 	})
 
-	t.Run("economy has correct assignments", func(t *testing.T) {
+	t.Run("economy has correct assignments with capped workers", func(t *testing.T) {
 		t.Parallel()
 		ra := CostTierRoleAgents(TierEconomy)
 		if ra == nil {
@@ -81,9 +81,9 @@ func TestCostTierRoleAgents(t *testing.T) {
 		expected := map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
-			"witness":  "claude-sonnet",
-			"refinery": "claude-sonnet",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-sonnet-capped",
+			"refinery": "claude-sonnet-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"crew":     "", // use default
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -95,7 +95,7 @@ func TestCostTierRoleAgents(t *testing.T) {
 		}
 	})
 
-	t.Run("budget has correct assignments", func(t *testing.T) {
+	t.Run("budget has correct assignments with capped workers", func(t *testing.T) {
 		t.Parallel()
 		ra := CostTierRoleAgents(TierBudget)
 		if ra == nil {
@@ -104,9 +104,9 @@ func TestCostTierRoleAgents(t *testing.T) {
 		expected := map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
-			"witness":  "claude-haiku",
-			"refinery": "claude-haiku",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-haiku-capped",
+			"refinery": "claude-haiku-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"crew":     "claude-sonnet",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -130,51 +130,42 @@ func TestCostTierRoleAgents(t *testing.T) {
 func TestCostTierAgents(t *testing.T) {
 	t.Parallel()
 
-	t.Run("standard returns opus-4-6 and haiku presets", func(t *testing.T) {
+	t.Run("standard returns opus-4-6, capped opus-4-6, and haiku presets", func(t *testing.T) {
 		t.Parallel()
 		agents := CostTierAgents(TierStandard)
 		if agents == nil {
 			t.Fatal("standard tier returned nil")
 		}
-		if _, ok := agents["claude-opus-4-6"]; !ok {
-			t.Error("standard tier missing claude-opus-4-6 agent")
-		}
-		if _, ok := agents["claude-haiku"]; !ok {
-			t.Error("standard tier missing claude-haiku agent")
+		for _, name := range []string{"claude-opus-4-6", "claude-opus-4-6-capped", "claude-haiku"} {
+			if _, ok := agents[name]; !ok {
+				t.Errorf("standard tier missing %s agent", name)
+			}
 		}
 	})
 
-	t.Run("economy returns opus-4-6, sonnet, and haiku presets", func(t *testing.T) {
+	t.Run("economy returns base and capped presets", func(t *testing.T) {
 		t.Parallel()
 		agents := CostTierAgents(TierEconomy)
 		if agents == nil {
 			t.Fatal("economy tier returned nil")
 		}
-		if _, ok := agents["claude-opus-4-6"]; !ok {
-			t.Error("economy tier missing claude-opus-4-6 agent")
-		}
-		if _, ok := agents["claude-sonnet"]; !ok {
-			t.Error("economy tier missing claude-sonnet agent")
-		}
-		if _, ok := agents["claude-haiku"]; !ok {
-			t.Error("economy tier missing claude-haiku agent")
+		for _, name := range []string{"claude-opus-4-6", "claude-opus-4-6-capped", "claude-sonnet", "claude-sonnet-capped", "claude-haiku"} {
+			if _, ok := agents[name]; !ok {
+				t.Errorf("economy tier missing %s agent", name)
+			}
 		}
 	})
 
-	t.Run("budget returns opus-4-6, sonnet, and haiku presets", func(t *testing.T) {
+	t.Run("budget returns base and capped presets", func(t *testing.T) {
 		t.Parallel()
 		agents := CostTierAgents(TierBudget)
 		if agents == nil {
 			t.Fatal("budget tier returned nil")
 		}
-		if _, ok := agents["claude-opus-4-6"]; !ok {
-			t.Error("budget tier missing claude-opus-4-6 agent")
-		}
-		if _, ok := agents["claude-sonnet"]; !ok {
-			t.Error("budget tier missing claude-sonnet agent")
-		}
-		if _, ok := agents["claude-haiku"]; !ok {
-			t.Error("budget tier missing claude-haiku agent")
+		for _, name := range []string{"claude-opus-4-6", "claude-opus-4-6-capped", "claude-sonnet", "claude-haiku", "claude-haiku-capped"} {
+			if _, ok := agents[name]; !ok {
+				t.Errorf("budget tier missing %s agent", name)
+			}
 		}
 	})
 
@@ -194,6 +185,52 @@ func TestCostTierAgents(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("opus-4-6 Args %v missing --model claude-opus-4-6", opus.Args)
+		}
+	})
+
+	t.Run("capped opus-4-6 preset uses cgroup-wrap", func(t *testing.T) {
+		t.Parallel()
+		agents := CostTierAgents(TierStandard)
+		capped := agents["claude-opus-4-6-capped"]
+		if capped.Command != "cgroup-wrap" {
+			t.Errorf("capped opus-4-6 Command = %q, want %q", capped.Command, "cgroup-wrap")
+		}
+		if len(capped.Args) == 0 || capped.Args[0] != "claude" {
+			t.Errorf("capped opus-4-6 Args[0] = %q, want %q", capped.Args[0], "claude")
+		}
+		found := false
+		for i, arg := range capped.Args {
+			if arg == "--model" && i+1 < len(capped.Args) && capped.Args[i+1] == "claude-opus-4-6" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("capped opus-4-6 Args %v missing --model claude-opus-4-6", capped.Args)
+		}
+	})
+
+	t.Run("capped sonnet preset uses cgroup-wrap", func(t *testing.T) {
+		t.Parallel()
+		agents := CostTierAgents(TierEconomy)
+		capped := agents["claude-sonnet-capped"]
+		if capped.Command != "cgroup-wrap" {
+			t.Errorf("capped sonnet Command = %q, want %q", capped.Command, "cgroup-wrap")
+		}
+		if len(capped.Args) == 0 || capped.Args[0] != "claude" {
+			t.Errorf("capped sonnet Args[0] = %q, want %q", capped.Args[0], "claude")
+		}
+	})
+
+	t.Run("capped haiku preset uses cgroup-wrap", func(t *testing.T) {
+		t.Parallel()
+		agents := CostTierAgents(TierBudget)
+		capped := agents["claude-haiku-capped"]
+		if capped.Command != "cgroup-wrap" {
+			t.Errorf("capped haiku Command = %q, want %q", capped.Command, "cgroup-wrap")
+		}
+		if len(capped.Args) == 0 || capped.Args[0] != "claude" {
+			t.Errorf("capped haiku Args[0] = %q, want %q", capped.Args[0], "claude")
 		}
 	})
 
@@ -262,7 +299,7 @@ func TestApplyCostTier(t *testing.T) {
 		}
 	})
 
-	t.Run("standard tier sets opus-4-6 for mayor/polecat and clears others", func(t *testing.T) {
+	t.Run("standard tier sets opus-4-6 for mayor, capped for workers, clears others", func(t *testing.T) {
 		t.Parallel()
 		settings := NewTownSettings()
 		// First apply economy
@@ -276,14 +313,18 @@ func TestApplyCostTier(t *testing.T) {
 		if settings.CostTier != "standard" {
 			t.Errorf("CostTier = %q, want %q", settings.CostTier, "standard")
 		}
-		// Mayor and polecat should be set to opus-4-6
-		for _, role := range []string{"mayor", "polecat"} {
-			if val := settings.RoleAgents[role]; val != "claude-opus-4-6" {
-				t.Errorf("RoleAgents[%q] = %q, want %q (standard tier)", role, val, "claude-opus-4-6")
+		// Mayor should be set to opus-4-6
+		if val := settings.RoleAgents["mayor"]; val != "claude-opus-4-6" {
+			t.Errorf("RoleAgents[mayor] = %q, want %q", val, "claude-opus-4-6")
+		}
+		// Worker roles should use capped opus-4-6
+		for _, role := range []string{"witness", "refinery", "polecat"} {
+			if val := settings.RoleAgents[role]; val != "claude-opus-4-6-capped" {
+				t.Errorf("RoleAgents[%q] = %q, want %q (standard tier)", role, val, "claude-opus-4-6-capped")
 			}
 		}
 		// Tier-managed roles with empty standard value should be removed
-		for _, role := range []string{"deacon", "witness", "refinery", "crew"} {
+		for _, role := range []string{"deacon", "crew"} {
 			if val, ok := settings.RoleAgents[role]; ok {
 				t.Errorf("RoleAgents[%q] = %q, want deleted (standard tier)", role, val)
 			}
@@ -294,15 +335,17 @@ func TestApplyCostTier(t *testing.T) {
 				t.Errorf("RoleAgents[%q] = %q, want %q (standard tier)", role, val, "claude-haiku")
 			}
 		}
-		// Standard tier should have opus-4-6 and haiku, but not sonnet
-		if _, ok := settings.Agents["claude-opus-4-6"]; !ok {
-			t.Error("standard tier should have claude-opus-4-6 agent")
+		// Standard tier should have opus-4-6, capped opus-4-6, and haiku
+		for _, name := range []string{"claude-opus-4-6", "claude-opus-4-6-capped", "claude-haiku"} {
+			if _, ok := settings.Agents[name]; !ok {
+				t.Errorf("standard tier should have %s agent", name)
+			}
 		}
-		if _, ok := settings.Agents["claude-haiku"]; !ok {
-			t.Error("standard tier should have claude-haiku agent")
-		}
-		if _, ok := settings.Agents["claude-sonnet"]; ok {
-			t.Error("standard tier should remove claude-sonnet agent")
+		// Should not have sonnet or sonnet-capped
+		for _, name := range []string{"claude-sonnet", "claude-sonnet-capped", "claude-haiku-capped"} {
+			if _, ok := settings.Agents[name]; ok {
+				t.Errorf("standard tier should remove %s agent", name)
+			}
 		}
 	})
 
@@ -325,6 +368,9 @@ func TestApplyCostTier(t *testing.T) {
 		if settings.Agents["claude-opus-4-6"] == nil {
 			t.Error("standard tier should add claude-opus-4-6")
 		}
+		if settings.Agents["claude-opus-4-6-capped"] == nil {
+			t.Error("standard tier should add claude-opus-4-6-capped")
+		}
 	})
 
 	t.Run("invalid tier returns error", func(t *testing.T) {
@@ -345,10 +391,12 @@ func TestGetCurrentTier(t *testing.T) {
 		settings := NewTownSettings()
 		settings.CostTier = "standard"
 		settings.RoleAgents = map[string]string{
-			"mayor":   "claude-opus-4-6",
-			"polecat": "claude-opus-4-6",
-			"boot":    "claude-haiku",
-			"dog":     "claude-haiku",
+			"mayor":    "claude-opus-4-6",
+			"witness":  "claude-opus-4-6-capped",
+			"refinery": "claude-opus-4-6-capped",
+			"polecat":  "claude-opus-4-6-capped",
+			"boot":     "claude-haiku",
+			"dog":      "claude-haiku",
 		}
 		if got := GetCurrentTier(settings); got != "standard" {
 			t.Errorf("GetCurrentTier = %q, want %q", got, "standard")
@@ -408,9 +456,9 @@ func TestGetCurrentTier(t *testing.T) {
 		settings.RoleAgents = map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
-			"witness":  "claude-sonnet",
-			"refinery": "claude-sonnet",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-sonnet-capped",
+			"refinery": "claude-sonnet-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
 		}
@@ -443,10 +491,12 @@ func TestTierRolesMatch(t *testing.T) {
 	t.Run("standard tier actual matches standard tier", func(t *testing.T) {
 		t.Parallel()
 		actual := map[string]string{
-			"mayor":   "claude-opus-4-6",
-			"polecat": "claude-opus-4-6",
-			"boot":    "claude-haiku",
-			"dog":     "claude-haiku",
+			"mayor":    "claude-opus-4-6",
+			"witness":  "claude-opus-4-6-capped",
+			"refinery": "claude-opus-4-6-capped",
+			"polecat":  "claude-opus-4-6-capped",
+			"boot":     "claude-haiku",
+			"dog":      "claude-haiku",
 		}
 		expected := CostTierRoleAgents(TierStandard)
 		if !tierRolesMatch(actual, expected) {
@@ -459,9 +509,9 @@ func TestTierRolesMatch(t *testing.T) {
 		actual := map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
-			"witness":  "claude-sonnet",
-			"refinery": "claude-sonnet",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-sonnet-capped",
+			"refinery": "claude-sonnet-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
 		}
@@ -476,7 +526,9 @@ func TestTierRolesMatch(t *testing.T) {
 		// Actual has standard tier assignments plus a custom non-tier entry
 		actual := map[string]string{
 			"mayor":       "claude-opus-4-6",
-			"polecat":     "claude-opus-4-6",
+			"witness":     "claude-opus-4-6-capped",
+			"refinery":    "claude-opus-4-6-capped",
+			"polecat":     "claude-opus-4-6-capped",
 			"boot":        "claude-haiku",
 			"dog":         "claude-haiku",
 			"custom-role": "custom-agent",

@@ -48,13 +48,14 @@ func CostTierRoleAgents(tier CostTier) map[string]string {
 	case TierStandard:
 		// Explicit mapping for all managed roles — empty value means "use default"
 		// Mayor and polecat are pinned to opus-4-6 (high-judgment and implementation roles)
+		// Worker roles (witness, refinery, polecat) use capped variants for CPU isolation
 		// Boot and dog are utility roles — always haiku even on standard tier
 		return map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "",
-			"witness":  "",
-			"refinery": "",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-opus-4-6-capped",
+			"refinery": "claude-opus-4-6-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"crew":     "",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -63,9 +64,9 @@ func CostTierRoleAgents(tier CostTier) map[string]string {
 		return map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
-			"witness":  "claude-sonnet",
-			"refinery": "claude-sonnet",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-sonnet-capped",
+			"refinery": "claude-sonnet-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"crew":     "", // use default
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -74,9 +75,9 @@ func CostTierRoleAgents(tier CostTier) map[string]string {
 		return map[string]string{
 			"mayor":    "claude-opus-4-6",
 			"deacon":   "claude-haiku",
-			"witness":  "claude-haiku",
-			"refinery": "claude-haiku",
-			"polecat":  "claude-opus-4-6",
+			"witness":  "claude-haiku-capped",
+			"refinery": "claude-haiku-capped",
+			"polecat":  "claude-opus-4-6-capped",
 			"crew":     "claude-sonnet",
 			"boot":     "claude-haiku",
 			"dog":      "claude-haiku",
@@ -87,20 +88,32 @@ func CostTierRoleAgents(tier CostTier) map[string]string {
 }
 
 // CostTierAgents returns the custom agent definitions needed for a given tier.
-// These define the claude-sonnet and claude-haiku agent presets.
-// Standard tier returns an empty map (no custom agents needed).
+// These define the claude model presets and their cgroup-wrapped (capped) variants.
+// Capped variants use cgroup-wrap to cap CPU per agent, preventing runaway processes
+// from saturating all cores.
 func CostTierAgents(tier CostTier) map[string]*RuntimeConfig {
 	switch tier {
 	case TierStandard:
 		return map[string]*RuntimeConfig{
-			"claude-opus-4-6": claudeOpus46Preset(),
-			"claude-haiku":    claudeHaikuPreset(),
+			"claude-opus-4-6":        claudeOpus46Preset(),
+			"claude-opus-4-6-capped": claudeOpus46CappedPreset(),
+			"claude-haiku":           claudeHaikuPreset(),
 		}
-	case TierEconomy, TierBudget:
+	case TierEconomy:
 		return map[string]*RuntimeConfig{
-			"claude-opus-4-6": claudeOpus46Preset(),
-			"claude-sonnet":   claudeSonnetPreset(),
-			"claude-haiku":    claudeHaikuPreset(),
+			"claude-opus-4-6":        claudeOpus46Preset(),
+			"claude-opus-4-6-capped": claudeOpus46CappedPreset(),
+			"claude-sonnet":          claudeSonnetPreset(),
+			"claude-sonnet-capped":   claudeSonnetCappedPreset(),
+			"claude-haiku":           claudeHaikuPreset(),
+		}
+	case TierBudget:
+		return map[string]*RuntimeConfig{
+			"claude-opus-4-6":        claudeOpus46Preset(),
+			"claude-opus-4-6-capped": claudeOpus46CappedPreset(),
+			"claude-sonnet":          claudeSonnetPreset(),
+			"claude-haiku":           claudeHaikuPreset(),
+			"claude-haiku-capped":    claudeHaikuCappedPreset(),
 		}
 	default:
 		return nil
@@ -128,6 +141,31 @@ func claudeHaikuPreset() *RuntimeConfig {
 	return &RuntimeConfig{
 		Command: "claude",
 		Args:    []string{"--dangerously-skip-permissions", "--model", "haiku"},
+	}
+}
+
+// claudeOpus46CappedPreset returns a cgroup-wrapped RuntimeConfig for Claude Opus 4.6.
+// The cgroup-wrap binary caps CPU usage per agent to prevent resource saturation.
+func claudeOpus46CappedPreset() *RuntimeConfig {
+	return &RuntimeConfig{
+		Command: "cgroup-wrap",
+		Args:    []string{"claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-6"},
+	}
+}
+
+// claudeSonnetCappedPreset returns a cgroup-wrapped RuntimeConfig for Claude Sonnet.
+func claudeSonnetCappedPreset() *RuntimeConfig {
+	return &RuntimeConfig{
+		Command: "cgroup-wrap",
+		Args:    []string{"claude", "--dangerously-skip-permissions", "--model", "sonnet"},
+	}
+}
+
+// claudeHaikuCappedPreset returns a cgroup-wrapped RuntimeConfig for Claude Haiku.
+func claudeHaikuCappedPreset() *RuntimeConfig {
+	return &RuntimeConfig{
+		Command: "cgroup-wrap",
+		Args:    []string{"claude", "--dangerously-skip-permissions", "--model", "haiku"},
 	}
 }
 
@@ -167,9 +205,12 @@ func ApplyCostTier(settings *TownSettings, tier CostTier) error {
 
 	// Determine which tier-specific agents this tier needs vs. doesn't need
 	tierAgentNames := map[string]bool{
-		"claude-opus-4-6": false,
-		"claude-sonnet":   false,
-		"claude-haiku":    false,
+		"claude-opus-4-6":        false,
+		"claude-opus-4-6-capped": false,
+		"claude-sonnet":          false,
+		"claude-sonnet-capped":   false,
+		"claude-haiku":           false,
+		"claude-haiku-capped":    false,
 	}
 	for name := range agents {
 		tierAgentNames[name] = true
@@ -232,9 +273,9 @@ func tierRolesMatch(actual, expected map[string]string) bool {
 func TierDescription(tier CostTier) string {
 	switch tier {
 	case TierStandard:
-		return "Mayor and polecats use Opus 4.6, other roles use default (highest quality)"
+		return "Mayor uses Opus 4.6, workers (witness/refinery/polecat) use cgroup-capped Opus 4.6"
 	case TierEconomy:
-		return "Mayor and polecats use Opus 4.6, patrol roles use Sonnet/Haiku"
+		return "Mayor uses Opus 4.6, polecat uses capped Opus 4.6, patrol roles use capped Sonnet/Haiku"
 	case TierBudget:
 		return "Mayor and polecats use Opus 4.6, patrol roles use Haiku, crew uses Sonnet"
 	default:

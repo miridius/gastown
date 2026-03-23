@@ -1410,6 +1410,12 @@ func isClaudeAgent(rc *RuntimeConfig) bool {
 	if rc.Command == "" || rc.Command == "claude" {
 		return true
 	}
+	// cgroup-wrap wraps another command — check if the wrapped command is claude
+	if rc.Command == "cgroup-wrap" && len(rc.Args) > 0 {
+		wrapped := filepath.Base(rc.Args[0])
+		wrapped = strings.TrimSuffix(wrapped, filepath.Ext(wrapped))
+		return wrapped == "claude"
+	}
 	base := filepath.Base(rc.Command)
 	base = strings.TrimSuffix(base, filepath.Ext(base))
 	return base == "claude"

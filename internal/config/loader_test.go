@@ -5111,7 +5111,7 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		}
 	})
 
-	t.Run("budget tier witness gets haiku", func(t *testing.T) {
+	t.Run("budget tier witness gets capped haiku", func(t *testing.T) {
 		t.Setenv("GT_COST_TIER", "budget")
 		rc, handled := tryResolveFromEphemeralTier("witness")
 		if !handled {
@@ -5120,8 +5120,8 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		if rc == nil {
 			t.Fatal("expected RuntimeConfig for witness in budget tier")
 		}
-		if !isClaudeCommand(rc.Command) {
-			t.Errorf("Command = %q, want claude", rc.Command)
+		if rc.Command != "cgroup-wrap" {
+			t.Errorf("Command = %q, want cgroup-wrap", rc.Command)
 		}
 		found := false
 		for i, arg := range rc.Args {
@@ -5135,7 +5135,7 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		}
 	})
 
-	t.Run("economy tier polecat gets opus-4-6", func(t *testing.T) {
+	t.Run("economy tier polecat gets capped opus-4-6", func(t *testing.T) {
 		t.Setenv("GT_COST_TIER", "economy")
 		rc, handled := tryResolveFromEphemeralTier("polecat")
 		if !handled {
@@ -5143,6 +5143,9 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		}
 		if rc == nil {
 			t.Fatal("expected RuntimeConfig for polecat in economy tier")
+		}
+		if rc.Command != "cgroup-wrap" {
+			t.Errorf("Command = %q, want cgroup-wrap", rc.Command)
 		}
 		found := false
 		for i, arg := range rc.Args {
@@ -5177,17 +5180,31 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 		}
 	})
 
-	t.Run("standard tier mayor/polecat get opus-4-6, others use default", func(t *testing.T) {
+	t.Run("standard tier: mayor gets opus-4-6, workers get capped, others default", func(t *testing.T) {
 		t.Setenv("GT_COST_TIER", "standard")
-		// Mayor and polecat should get opus-4-6
-		for _, role := range []string{"mayor", "polecat"} {
+		// Mayor should get opus-4-6 (uncapped)
+		rc, handled := tryResolveFromEphemeralTier("mayor")
+		if !handled {
+			t.Error("standard tier should return handled=true for mayor")
+		}
+		if rc == nil {
+			t.Error("standard tier should return RuntimeConfig for mayor")
+		} else if rc.Command != "claude" {
+			t.Errorf("standard tier mayor Command = %q, want claude", rc.Command)
+		}
+
+		// Worker roles (witness, refinery, polecat) should get capped opus-4-6
+		for _, role := range []string{"witness", "refinery", "polecat"} {
 			rc, handled := tryResolveFromEphemeralTier(role)
 			if !handled {
 				t.Errorf("standard tier should return handled=true for %s", role)
 			}
 			if rc == nil {
-				t.Errorf("standard tier should return RuntimeConfig for %s (opus-4-6)", role)
+				t.Errorf("standard tier should return RuntimeConfig for %s (capped opus-4-6)", role)
 				continue
+			}
+			if rc.Command != "cgroup-wrap" {
+				t.Errorf("standard tier %s: Command = %q, want cgroup-wrap", role, rc.Command)
 			}
 			found := false
 			for i, arg := range rc.Args {
@@ -5201,7 +5218,7 @@ func TestTryResolveFromEphemeralTier(t *testing.T) {
 			}
 		}
 		// Other roles should use default (nil rc)
-		for _, role := range []string{"deacon", "witness", "refinery", "crew"} {
+		for _, role := range []string{"deacon", "crew"} {
 			rc, handled := tryResolveFromEphemeralTier(role)
 			if !handled {
 				t.Errorf("standard tier should return handled=true for %s", role)
@@ -5228,8 +5245,8 @@ func TestResolveRoleAgentConfig_WithEphemeralTier(t *testing.T) {
 	if rc == nil {
 		t.Fatal("expected RuntimeConfig for witness with ephemeral budget tier")
 	}
-	if !isClaudeCommand(rc.Command) {
-		t.Errorf("Command = %q, want claude", rc.Command)
+	if rc.Command != "cgroup-wrap" {
+		t.Errorf("Command = %q, want cgroup-wrap", rc.Command)
 	}
 	found := false
 	for i, arg := range rc.Args {
@@ -5258,10 +5275,13 @@ func TestResolveRoleAgentConfig_EphemeralOverridesPersistent(t *testing.T) {
 	// Set ephemeral to budget — should override
 	t.Setenv("GT_COST_TIER", "budget")
 
-	// witness is sonnet in economy, haiku in budget
+	// witness is sonnet-capped in economy, haiku-capped in budget
 	rc := ResolveRoleAgentConfig("witness", townRoot, "")
 	if rc == nil {
 		t.Fatal("expected RuntimeConfig for witness")
+	}
+	if rc.Command != "cgroup-wrap" {
+		t.Errorf("Command = %q, want cgroup-wrap", rc.Command)
 	}
 	found := false
 	for i, arg := range rc.Args {
@@ -5290,12 +5310,15 @@ func TestResolveRoleAgentConfig_EphemeralStandardSkipsPersisted(t *testing.T) {
 	// Set ephemeral to standard — should skip persisted budget config
 	t.Setenv("GT_COST_TIER", "standard")
 
-	// polecat was claude-sonnet in budget, should now use default (opus/claude)
+	// polecat in standard tier uses capped opus-4-6, NOT stale budget config
 	rc := ResolveRoleAgentConfig("polecat", townRoot, "")
 	if rc == nil {
 		t.Fatal("expected RuntimeConfig for polecat")
 	}
-	// Should be default claude (opus), NOT claude-sonnet from stale budget config
+	if rc.Command != "cgroup-wrap" {
+		t.Errorf("Command = %q, want cgroup-wrap for standard tier polecat", rc.Command)
+	}
+	// Should be opus model, NOT sonnet/haiku from stale budget config
 	for i, arg := range rc.Args {
 		if arg == "--model" && i+1 < len(rc.Args) {
 			model := rc.Args[i+1]

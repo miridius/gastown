@@ -618,23 +618,22 @@ func nudgeWitness(rigName, message string) {
 	}
 }
 
-// nudgeRefinery wakes the refinery after an MR is created.
-// Uses immediate delivery: sends directly to the tmux pane.
-// No cooperative queue — idle agents never call Drain(), so queued
-// nudges would be stuck forever. Direct delivery is safe: if the
-// agent is busy, text buffers in tmux and is processed at next prompt.
+// nudgeRefinery wakes the refinery after an MR is created by emitting a
+// channel event. The event unblocks the refinery's await-event loop between
+// patrol cycles. No tmux nudge is sent — immediate nudges interrupt in-flight
+// test runs, causing the refinery to abandon tests and re-scan the queue in
+// an infinite loop (gt-3zy).
 func nudgeRefinery(rigName, message string) {
-	refinerySession := session.RefinerySessionName(session.PrefixFor(rigName))
-
 	// Test hook: log nudge for test observability (same pattern as GT_TEST_ATTACHED_MOLECULE_LOG)
 	if logPath := os.Getenv("GT_TEST_NUDGE_LOG"); logPath != "" {
-		entry := fmt.Sprintf("nudge:%s:%s\n", refinerySession, message)
+		refinerySession := session.RefinerySessionName(session.PrefixFor(rigName))
+		entry := fmt.Sprintf("event:%s:%s\n", refinerySession, message)
 		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
 			_, _ = f.WriteString(entry)
 			_ = f.Close()
 		}
-		return // Don't actually nudge tmux in tests
+		return // Don't emit events in tests
 	}
 
 	// Emit a file event so the refinery's await-event unblocks instantly.
@@ -645,11 +644,6 @@ func nudgeRefinery(rigName, message string) {
 			"source=sling",
 			"message=" + message,
 		})
-	}
-
-	t := tmux.NewTmux()
-	if err := t.NudgeSession(refinerySession, message); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to nudge refinery %s: %v\n", refinerySession, err)
 	}
 }
 

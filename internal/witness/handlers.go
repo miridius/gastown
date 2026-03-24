@@ -252,10 +252,11 @@ func handlePolecatDonePendingMR(bd *BdCli, workDir, rigName string, payload *Pol
 	return result
 }
 
-// notifyRefineryMergeReady emits a MERGE_READY channel event and nudges the
-// Refinery to check the merge queue. The channel event unblocks the refinery's
-// await-event loop instantly; the tmux nudge is a belt-and-suspenders fallback
-// for when the refinery is at the Claude prompt rather than in await-event.
+// notifyRefineryMergeReady emits a MERGE_READY channel event to wake the
+// Refinery's await-event loop. The event file unblocks the refinery instantly
+// when it's between patrol cycles. No tmux nudge is sent — immediate nudges
+// interrupt in-flight test runs, causing the refinery to abandon tests and
+// re-scan the queue in an infinite loop (gt-3zy).
 // Errors are non-fatal (Refinery will still pick up work on next patrol cycle).
 func notifyRefineryMergeReady(workDir, rigName string, result *HandlerResult) {
 	townRoot, _ := workspace.Find(workDir)
@@ -265,11 +266,6 @@ func notifyRefineryMergeReady(workDir, rigName string, result *HandlerResult) {
 			"source=witness",
 			"rig=" + rigName,
 		})
-	}
-	if nudgeErr := nudgeRefinery(townRoot, rigName); nudgeErr != nil {
-		if result.Error == nil {
-			result.Error = fmt.Errorf("nudging refinery: %w (non-fatal)", nudgeErr)
-		}
 	}
 }
 
@@ -637,35 +633,6 @@ func findMRBeadForBranch(bd *BdCli, workDir, branch string) string {
 		}
 	}
 	return ""
-}
-
-// nudgeRefinery wakes the refinery session to check the merge queue.
-// Uses immediate delivery: sends directly to the tmux pane.
-// No cooperative queue — idle agents never call Drain(), so queued
-// nudges would be stuck forever. Direct delivery is safe: if the
-// agent is busy, text buffers in tmux and is processed at next prompt.
-func nudgeRefinery(townRoot, rigName string) error {
-	initRegistryFromTownRoot(townRoot)
-	sessionName := session.RefinerySessionName(session.PrefixFor(rigName))
-
-	// Check if refinery is running
-	t := tmux.NewTmux()
-	running, err := t.HasSession(sessionName)
-	if err != nil {
-		return fmt.Errorf("checking refinery session: %w", err)
-	}
-
-	if !running {
-		// Refinery not running - daemon will start it on next heartbeat.
-		// MR beads are discoverable from the merge queue.
-		return nil
-	}
-
-	// Immediate delivery: send directly to tmux pane.
-	// No cooperative queue — idle agents never call Drain(), so queued
-	// nudges would be stuck forever. Direct delivery is safe: if the
-	// agent is busy, text buffers in tmux and is processed at next prompt.
-	return t.NudgeSession(sessionName, "New MR available - check merge queue for pending work")
 }
 
 // notifyMayorSlotOpen nudges the Mayor that a polecat slot is now open.
@@ -1746,15 +1713,17 @@ func processDiscoveredCompletion(bd *BdCli, workDir, rigName string, payload *Po
 			discovery.Error = fmt.Errorf("updating wisp state: %w", err)
 		}
 
-		// Nudge refinery to check merge queue (no permanent mail needed).
+		// Emit channel event so refinery's await-event unblocks (no tmux nudge —
+		// immediate nudges interrupt in-flight tests, causing infinite loop gt-3zy).
 		townRoot, _ := workspace.Find(workDir)
-		if nudgeErr := nudgeRefinery(townRoot, rigName); nudgeErr != nil {
-			if discovery.Error == nil {
-				discovery.Error = fmt.Errorf("nudging refinery: %w (non-fatal)", nudgeErr)
-			}
+		if townRoot != "" {
+			_, _ = channelevents.EmitToTown(townRoot, "refinery", "MERGE_READY", []string{
+				"source=witness",
+				"rig=" + rigName,
+			})
 		}
 
-		discovery.Action = fmt.Sprintf("merge-ready-nudged (MR=%s, wisp=%s)", payload.MRID, wispID)
+		discovery.Action = fmt.Sprintf("merge-ready-event (MR=%s, wisp=%s)", payload.MRID, wispID)
 
 		// Notify Mayor that a slot is open even with pending MR — polecat is idle. (GH#2727)
 		notifyMayorSlotOpen(workDir, rigName, payload.PolecatName, payload.Exit)

@@ -1859,7 +1859,8 @@ func TestNotifyRefineryMergeReady_EmitsChannelEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Set GT_TEST_NUDGE_LOG to prevent actual tmux operations in nudgeRefinery
+	// GT_TEST_NUDGE_LOG no longer needed — tmux nudge removed (gt-3zy),
+	// but keep it set for backward compatibility with any test infrastructure.
 	t.Setenv("GT_TEST_NUDGE_LOG", filepath.Join(t.TempDir(), "nudge.log"))
 
 	result := &HandlerResult{}

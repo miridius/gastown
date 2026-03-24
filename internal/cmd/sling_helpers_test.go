@@ -23,7 +23,8 @@ func setupSlingTestRegistry(t *testing.T) {
 }
 
 // TestNudgeRefinerySessionName verifies that nudgeRefinery constructs the
-// correct tmux session name ({prefix}-refinery) and passes the message.
+// correct session name and passes the message via event log (no tmux nudge
+// after gt-3zy — only channel events are emitted).
 func TestNudgeRefinerySessionName(t *testing.T) {
 	setupSlingTestRegistry(t)
 	logPath := filepath.Join(t.TempDir(), "nudge.log")
@@ -64,8 +65,8 @@ func TestNudgeRefinerySessionName(t *testing.T) {
 			}
 			logContent := string(logBytes)
 
-			// Verify session name
-			wantPrefix := "nudge:" + tt.wantSession + ":"
+			// Verify session name in event log entry
+			wantPrefix := "event:" + tt.wantSession + ":"
 			if !strings.Contains(logContent, wantPrefix) {
 				t.Errorf("nudgeRefinery(%q) session = got log %q, want prefix %q",
 					tt.rigName, logContent, wantPrefix)
@@ -104,13 +105,13 @@ func TestWakeRigAgentsDoesNotNudgeRefinery(t *testing.T) {
 }
 
 // TestNudgeRefineryNoOpWithoutLog verifies that nudgeRefinery doesn't panic
-// or error when called without the test log env var and without a real tmux session.
-// The tmux NudgeSession call should fail silently.
+// or error when called without a real town root or event directory.
+// After gt-3zy, nudgeRefinery only emits channel events (no tmux nudge).
 func TestNudgeRefineryNoOpWithoutLog(t *testing.T) {
-	// Ensure test log is NOT set so we exercise the real tmux path
+	// Ensure test log is NOT set so we exercise the real event path
 	t.Setenv("GT_TEST_NUDGE_LOG", "")
 
-	// Should not panic even though no tmux session exists
+	// Should not panic even without a valid town root
 	nudgeRefinery("nonexistent-rig", "test message")
 }
 

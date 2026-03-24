@@ -734,6 +734,8 @@ func TestCollectConvoyBeads_ExternalTrackedIDs(t *testing.T) {
 	binDir := t.TempDir()
 	bdPath := filepath.Join(binDir, "bd")
 	bdScript := `#!/bin/sh
+# Handle --allow-stale probe
+case "$*" in "--allow-stale version") exit 0 ;; esac
 case "$*" in
   "show hq-cv-ext --json")
     echo '[{"id":"hq-cv-ext","title":"Ext convoy","status":"staged_ready","issue_type":"convoy"}]'

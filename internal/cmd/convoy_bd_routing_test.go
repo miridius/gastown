@@ -91,6 +91,9 @@ func TestRunConvoyList_UsesTownRootAndStripsBeadsDir(t *testing.T) {
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 
 	scriptBody := fmt.Sprintf(`
+# Handle --allow-stale probe before BEADS_DIR check (probe inherits env)
+case "$*" in "--allow-stale version") exit 0 ;; esac
+
 if [ -n "$BEADS_DIR" ]; then
   echo "BEADS_DIR leaked: $BEADS_DIR" >&2
   exit 1
@@ -104,7 +107,7 @@ case "$*" in
     fi
     echo '[{"id":"hq-cv-town","title":"Town convoy","status":"open","created_at":"2026-03-09T00:00:00Z"}]'
     ;;
-  "dep list hq-cv-town --direction=down --type=tracks --allow-stale --json")
+  "dep list hq-cv-town --direction=down --type=tracks --allow-stale --json"|"dep list hq-cv-town --direction=down --type=tracks --json")
     if [ "$PWD" != "%s" ]; then
       echo "expected town root, got $PWD" >&2
       exit 1
@@ -159,6 +162,9 @@ func TestRunConvoyStatus_UsesTownRootAndStripsBeadsDir(t *testing.T) {
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 
 	scriptBody := fmt.Sprintf(`
+# Handle --allow-stale probe before BEADS_DIR check (probe inherits env)
+case "$*" in "--allow-stale version") exit 0 ;; esac
+
 if [ -n "$BEADS_DIR" ]; then
   echo "BEADS_DIR leaked: $BEADS_DIR" >&2
   exit 1
@@ -172,7 +178,7 @@ case "$*" in
     fi
     echo '[{"id":"hq-cv-status","title":"Status convoy","status":"open","issue_type":"convoy","created_at":"2026-03-09T00:00:00Z","labels":[],"dependencies":[]}]'
     ;;
-  "dep list hq-cv-status --direction=down --type=tracks --allow-stale --json")
+  "dep list hq-cv-status --direction=down --type=tracks --allow-stale --json"|"dep list hq-cv-status --direction=down --type=tracks --json")
     if [ "$PWD" != "%s" ]; then
       echo "expected town root, got $PWD" >&2
       exit 1

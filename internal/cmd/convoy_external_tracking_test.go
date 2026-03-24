@@ -65,8 +65,11 @@ func TestGetTrackedIssues_FallsBackToShowTrackedDependencies(t *testing.T) {
 	chdirExternalTrackingTest(t, townRoot)
 
 	scriptBody := fmt.Sprintf(`
+# Handle --allow-stale probe
+case "$*" in "--allow-stale version") exit 0 ;; esac
+
 case "$*" in
-  "dep list hq-cv-ext --direction=down --type=tracks --allow-stale --json")
+  "dep list hq-cv-ext --direction=down --type=tracks --allow-stale --json"|"dep list hq-cv-ext --direction=down --type=tracks --json")
     echo '[]'
     ;;
   "show hq-cv-ext --json")

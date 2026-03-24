@@ -40,6 +40,8 @@ func TestStrandedScanExcludesStagedConvoys(t *testing.T) {
 	// - For list without --status=open: returns a staged convoy (would be wrong)
 	// - For other subcommands: returns []
 	script := `#!/bin/sh
+# Handle --allow-stale probe without logging
+case "$*" in "--allow-stale version") exit 0 ;; esac
 echo "$@" >> "` + logPath + `"
 
 # Detect subcommand (skip flags)
@@ -149,7 +151,9 @@ func TestStrandedScanQueryShape(t *testing.T) {
 	bdPath := filepath.Join(binDir, "bd")
 
 	// Stub that logs args and returns empty list for everything.
+	// Handle --allow-stale probe without logging (it's not a real bd call).
 	script := `#!/bin/sh
+case "$*" in "--allow-stale version") exit 0 ;; esac
 echo "$@" >> "` + logPath + `"
 echo '[]'
 exit 0

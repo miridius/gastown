@@ -2340,7 +2340,11 @@ func (t *Tmux) IsRuntimeRunning(session string, processNames []string) bool {
 
 	// ZFC: check declared pane identity set at session startup (gt-qmsx).
 	if declaredPane, err := t.GetEnvironment(session, "GT_PANE_ID"); err == nil && declaredPane != "" {
-		return t.checkTargetPaneForRuntime(declaredPane, processNames)
+		if t.checkTargetPaneForRuntime(declaredPane, processNames) {
+			return true
+		}
+		// Process name didn't match but pane exists — fall through to
+		// GT_AGENT_READY check below (handles wrapped agents). (gt-8ej)
 	}
 
 	// Legacy fallback: check first window, then scan all panes.
@@ -2348,18 +2352,26 @@ func (t *Tmux) IsRuntimeRunning(session string, processNames []string) bool {
 		return true
 	}
 	out, err := t.run("list-panes", "-s", "-t", session, "-F", "#{pane_current_command}\t#{pane_pid}")
-	if err != nil {
-		return false
+	if err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			parts := strings.SplitN(line, "\t", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			cmd, pid := parts[0], parts[1]
+			if matchesPaneRuntime(cmd, pid, processNames) {
+				return true
+			}
+		}
 	}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		cmd, pid := parts[0], parts[1]
-		if matchesPaneRuntime(cmd, pid, processNames) {
-			return true
-		}
+
+	// ZFC fallback: if the agent signaled readiness via GT_AGENT_READY (set by
+	// gt prime --hook), trust that signal even when process name detection fails.
+	// This prevents false zombie detection for wrapped agents (e.g., c2claude)
+	// where pane_current_command shows a shell instead of the agent binary.
+	// WaitForCommand already uses this same fallback (gt-sk5u). (gt-8ej)
+	if ready, err := t.GetEnvironment(session, EnvAgentReady); err == nil && ready == "1" {
+		return true
 	}
 	return false
 }

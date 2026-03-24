@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultStrandedScanInterval = 30 * time.Second
-	eventPollInterval    = 5 * time.Second
+	eventPollInterval    = 15 * time.Second
 	eventPollMaxBackoff = 60 * time.Second
 
 	// convoyGracePeriod is how long after creation a convoy is immune from

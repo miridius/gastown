@@ -1280,8 +1280,8 @@ func (d *Daemon) ensureMayorRunning() {
 	mgr := mayor.NewManager(d.config.TownRoot)
 
 	if err := mgr.Start(""); err != nil {
-		if err == mayor.ErrAlreadyRunning {
-			// Mayor is running - nothing to do
+		if err == mayor.ErrAlreadyRunning || err == mayor.ErrACPActive {
+			// Mayor is running (TMUX or ACP mode) - nothing to do
 			return
 		}
 		d.logger.Printf("Error starting Mayor: %v", err)

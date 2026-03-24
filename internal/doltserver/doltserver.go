@@ -129,7 +129,7 @@ func setDoltGlobalConfig(key, value string) error {
 const (
 	DefaultPort           = 3307
 	DefaultUser           = "root" // Default Dolt user (no password for local access)
-	DefaultMaxConnections = 1000   // Dolt default; no reason to limit below (Tim Sehn confirmed 1k is fine)
+	DefaultMaxConnections = 150 // Reduced from 1000 to prevent CPU saturation after crash/reconnect storms (gt-01f)
 
 	// DefaultReadTimeoutMs is the server-side timeout for reading a complete request from a client.
 	// Controls how long Dolt waits for a client to send a query on an idle connection.
@@ -1269,6 +1269,8 @@ behavior:
 
 system_variables:
   dolt_stats_paused: 1
+  wait_timeout: 300
+  interactive_timeout: 300
 `,
 		config.LogLevel,
 		config.Port,

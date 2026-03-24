@@ -165,7 +165,14 @@ func OpenDB(host string, port int, dbName string, readTimeout, writeTimeout time
 		host, port, dbName,
 		fmt.Sprintf("%ds", int(readTimeout.Seconds())),
 		fmt.Sprintf("%ds", int(writeTimeout.Seconds())))
-	return sql.Open("mysql", dsn)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(2 * time.Minute)
+	return db, nil
 }
 
 // parentExcludeJoin returns a LEFT JOIN clause and WHERE condition that restricts

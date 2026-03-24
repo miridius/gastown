@@ -291,7 +291,14 @@ func maintainBackupSync(dataDir, dbName, backupName string) error {
 func maintainOpenDB(config *doltserver.Config, dbName string) (*sql.DB, error) {
 	dsn := fmt.Sprintf("%s@tcp(%s)/%s?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s",
 		config.User, config.HostPort(), dbName)
-	return sql.Open("mysql", dsn)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(2 * time.Minute)
+	return db, nil
 }
 
 // maintainFlattenDB flattens a database's commit history to a single commit.

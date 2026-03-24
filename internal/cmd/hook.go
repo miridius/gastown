@@ -414,6 +414,9 @@ func runHook(_ *cobra.Command, args []string) error {
 	// This ensures gt hook / gt mol status can find hooked work via the agent bead
 	updateAgentHookBead(agentID, beadID, workDir, townBeadsDir)
 
+	// Write local hook cache for fast reads (avoids Dolt connection on gt hook)
+	WriteHookCacheFromContext(agentID, beadID, hookSubject)
+
 	if targetAgent != "" {
 		fmt.Printf("  Use 'gt hook show %s' to verify\n", targetAgent)
 	} else {

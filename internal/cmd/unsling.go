@@ -238,6 +238,9 @@ func runUnslingWith(cmd *cobra.Command, args []string, dryRun, force bool) error
 	// Log unhook event
 	_ = events.LogFeed(events.TypeUnhook, agentID, events.UnhookPayload(hookedBeadID))
 
+	// Clear local hook cache
+	ClearHookCacheFromContext(agentID)
+
 	// Emit a propulsion signal if the target is the mayor.
 	// This allows the ACP propeller to react to hook changes event-driven.
 	if agentID == "mayor/" {

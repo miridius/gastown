@@ -386,6 +386,55 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 		Role:   string(roleCtx.Role),
 	}
 
+	// Fast path: check local hook cache before hitting Dolt.
+	// The cache is written by gt hook/sling/unsling and avoids bd list queries.
+	if cached := ReadHookCache(townRoot, target); cached != nil {
+		// Cache hit — do a single targeted bd show instead of multiple list queries
+		cachedBead, err := b.Show(cached.BeadID)
+		if err == nil && cachedBead != nil {
+			status.HasWork = true
+			status.PinnedBead = cachedBead
+
+			// Check for attached molecule
+			attachment := beads.ParseAttachmentFields(cachedBead)
+			if attachment != nil {
+				status.AttachedMolecule = attachment.AttachedMolecule
+				status.AttachedFormula = attachment.AttachedFormula
+				status.AttachedAt = attachment.AttachedAt
+				status.AttachedArgs = attachment.AttachedArgs
+				status.AttachedVars = attachment.AttachedVars
+
+				status.IsWisp = strings.Contains(cachedBead.Description, "wisp: true") ||
+					strings.Contains(cachedBead.Description, "is_wisp: true")
+
+				if attachment.AttachedMolecule != "" {
+					progress, _ := getMoleculeProgressInfo(b, attachment.AttachedMolecule)
+					status.Progress = progress
+					status.NextAction = determineNextAction(status)
+				} else if attachment.AttachedFormula != "" {
+					progress, _ := getMoleculeProgressInfo(b, cachedBead.ID)
+					status.Progress = progress
+					status.NextAction = determineNextAction(status)
+				}
+			}
+
+			if status.AttachedMolecule == "" && status.AttachedFormula == "" {
+				status.NextAction = "Attach a molecule to start work: gt mol attach <bead-id> <molecule-id>"
+			} else if status.AttachedFormula != "" && status.NextAction == "" {
+				status.NextAction = "Show the workflow steps: gt prime or bd mol current " + cachedBead.ID
+			}
+
+			if moleculeJSON {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(status)
+			}
+			return outputMoleculeStatus(status)
+		}
+		// Cache pointed to a bead that doesn't exist or can't be read —
+		// fall through to full Dolt lookup (cache may be stale).
+	}
+
 	// lookupHookedWork performs the full multi-step hook lookup for target.
 	// Called in a retry loop for polecats to handle Dolt propagation lag.
 	lookupHookedWork := func() *beads.Issue {
@@ -485,6 +534,9 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if hookBead != nil {
+		// Warm the cache for future fast-path reads
+		_ = WriteHookCache(townRoot, target, hookBead.ID, hookBead.Title)
+
 		status.HasWork = true
 		status.PinnedBead = hookBead
 

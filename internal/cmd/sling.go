@@ -920,6 +920,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 
 	fmt.Printf("%s Work attached to hook (status=hooked)\n", style.Bold.Render("✓"))
 
+	// Write local hook cache for fast reads (avoids Dolt connection on gt hook)
+	WriteHookCacheFromContext(targetAgent, beadID, slingSubject)
+
 	// Log sling event to activity feed
 	actor := detectActor()
 	_ = events.LogFeed(events.TypeSling, actor, events.SlingPayload(beadID, targetAgent))

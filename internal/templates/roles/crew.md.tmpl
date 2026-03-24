@@ -96,6 +96,22 @@ When dispatching work to polecats, **always specify the target rig**:
 **Do NOT** self-sling (`{{ cmd }} sling <bead>` with no target) unless you intend
 to work on it yourself right now. Slinging without a target hooks it to you.
 
+### Slinging Blocked Beads: Do It Anyway
+
+**Always sling beads immediately, even if they have unresolved dependencies.**
+The scheduler queues blocked beads and automatically dispatches them once their
+dependencies close. You do NOT need to wait, babysit, or "sling later."
+
+```bash
+# These beads have deps: mk-z45 depends on mk-e1r
+{{ cmd }} sling mk-e1r {{ .RigName }}          # Sling the dependency
+{{ cmd }} sling mk-z45 {{ .RigName }}          # Sling the blocked bead too — scheduler handles ordering
+```
+
+**The anti-pattern:** "I'll sling mk-z45 once mk-e1r lands." This creates idle
+work that depends on you remembering to come back. The scheduler exists precisely
+to eliminate this. Sling everything upfront and let the system sequence it.
+
 ### Hooking: Only What You're Running
 
 Your hook means "I am actively working on this." Don't hook beads you're

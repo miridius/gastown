@@ -22,8 +22,8 @@ const doltCmdTimeout = 15 * time.Second
 
 // DefaultDoltHealthCheckInterval is how often the dedicated Dolt health check
 // ticker fires, independent of the general daemon heartbeat (3 min).
-// 30 seconds provides fast crash detection: a Dolt server crash is detected
-// within 30s instead of up to 3 minutes.
+// 120 seconds reduces connection churn by 75% while still detecting crashes
+// within 2 minutes.
 const DefaultDoltHealthCheckInterval = 120 * time.Second
 
 // DoltServerConfig holds configuration for the Dolt SQL server.

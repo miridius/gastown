@@ -82,7 +82,7 @@ const (
 
 // Dolt defaults.
 const (
-	DefaultDoltHealthCheckInterval = 30 * time.Second
+	DefaultDoltHealthCheckInterval = 120 * time.Second
 	DefaultDoltCmdTimeout          = 15 * time.Second
 	DefaultDoltMaxConnections      = 1000
 	DefaultDoltSlowQueryThreshold  = 1 * time.Second

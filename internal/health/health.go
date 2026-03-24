@@ -33,7 +33,7 @@ func TCPCheck(host string, port int, timeout time.Duration) bool {
 
 // LatencyCheck runs SELECT 1 against the Dolt server and returns the round-trip latency.
 func LatencyCheck(host string, port int, timeout time.Duration) (time.Duration, error) {
-	dsn := fmt.Sprintf("root@tcp(%s:%d)/?timeout=5s&readTimeout=10s", host, port)
+	dsn := fmt.Sprintf("root@%s/?timeout=5s&readTimeout=10s", doltserver.NetAddrForHostPort(host, port))
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return 0, fmt.Errorf("open connection: %w", err)
@@ -53,7 +53,7 @@ func LatencyCheck(host string, port int, timeout time.Duration) (time.Duration, 
 
 // DatabaseCount runs SHOW DATABASES and returns the count (excluding system databases).
 func DatabaseCount(host string, port int) (int, []string, error) {
-	dsn := fmt.Sprintf("root@tcp(%s:%d)/?timeout=5s&readTimeout=10s", host, port)
+	dsn := fmt.Sprintf("root@%s/?timeout=5s&readTimeout=10s", doltserver.NetAddrForHostPort(host, port))
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return 0, nil, err

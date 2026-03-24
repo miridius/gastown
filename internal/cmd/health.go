@@ -178,8 +178,8 @@ func checkDatabaseHealth(port int) []DatabaseHealth {
 	for _, dbName := range productionDBs {
 		dh := DatabaseHealth{Name: dbName}
 
-		dsn := fmt.Sprintf("root@tcp(127.0.0.1:%d)/%s?parseTime=true&timeout=5s&readTimeout=10s",
-			port, dbName)
+		dsn := fmt.Sprintf("root@%s/%s?parseTime=true&timeout=5s&readTimeout=10s",
+			doltserver.NetAddrForHostPort("127.0.0.1", port), dbName)
 		db, err := sql.Open("mysql", dsn)
 		if err != nil {
 			results = append(results, dh)
@@ -226,8 +226,8 @@ func checkPollution(port int) []PollutionRecord {
 	}
 
 	for _, dbName := range productionDBs {
-		dsn := fmt.Sprintf("root@tcp(127.0.0.1:%d)/%s?parseTime=true&timeout=5s&readTimeout=10s",
-			port, dbName)
+		dsn := fmt.Sprintf("root@%s/%s?parseTime=true&timeout=5s&readTimeout=10s",
+			doltserver.NetAddrForHostPort("127.0.0.1", port), dbName)
 		db, err := sql.Open("mysql", dsn)
 		if err != nil {
 			continue

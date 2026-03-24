@@ -2143,16 +2143,21 @@ func TestListDatabases_MixedContent(t *testing.T) {
 func TestGetConnectionString(t *testing.T) {
 	townRoot := t.TempDir()
 	s := GetConnectionString(townRoot)
-	if s != "root@tcp(127.0.0.1:3307)/" {
-		t.Errorf("got %q, want root@tcp(127.0.0.1:3307)/", s)
+	// NetAddr prefers Unix socket when /tmp/mysql.3307.sock exists, falls back to TCP.
+	wantTCP := "root@tcp(127.0.0.1:3307)/"
+	wantUnix := "root@unix(/tmp/mysql.3307.sock)/"
+	if s != wantTCP && s != wantUnix {
+		t.Errorf("got %q, want %q or %q", s, wantTCP, wantUnix)
 	}
 }
 
 func TestGetConnectionStringForRig(t *testing.T) {
 	townRoot := t.TempDir()
 	s := GetConnectionStringForRig(townRoot, "hq")
-	if s != "root@tcp(127.0.0.1:3307)/hq" {
-		t.Errorf("got %q, want root@tcp(127.0.0.1:3307)/hq", s)
+	wantTCP := "root@tcp(127.0.0.1:3307)/hq"
+	wantUnix := "root@unix(/tmp/mysql.3307.sock)/hq"
+	if s != wantTCP && s != wantUnix {
+		t.Errorf("got %q, want %q or %q", s, wantTCP, wantUnix)
 	}
 }
 

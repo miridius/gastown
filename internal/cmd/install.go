@@ -170,7 +170,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			if err := doltserver.CheckPortAvailable(port); err != nil {
 				// Port is in use — but if a Dolt server is already running
 				// on it, we can reuse it instead of starting a new one.
-				dsn := fmt.Sprintf("root:@tcp(127.0.0.1:%d)/", port)
+				dsn := fmt.Sprintf("root:@%s/", doltserver.NetAddrForHostPort("127.0.0.1", port))
 				if db, connErr := sql.Open("mysql", dsn); connErr == nil {
 					if pingErr := db.Ping(); pingErr == nil {
 						db.Close()
@@ -572,7 +572,7 @@ func initTownBeads(townPath string) error {
 	// The server may have just been started by gt install and TCP reachability
 	// alone is not sufficient; we need MySQL protocol readiness.
 	cfg := doltserver.DefaultConfig(townPath)
-	dsn := fmt.Sprintf("%s@tcp(%s)/", cfg.User, cfg.HostPort())
+	dsn := cfg.DSN("", "")
 	var lastErr error
 	for attempt := 0; attempt < 20; attempt++ {
 		db, err := sql.Open("mysql", dsn)

@@ -275,17 +275,14 @@ func (m *DoltServerManager) getHealthDB() (*sql.DB, error) {
 	if m.healthDB != nil {
 		return m.healthDB, nil
 	}
-	host := m.config.Host
-	if host == "" {
-		host = "127.0.0.1"
-	}
 	user := m.config.User
 	if user == "" {
 		user = "root"
 	}
 	password := m.config.Password
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?timeout=5s&readTimeout=10s",
-		user, password, host, m.config.Port)
+	netAddr := doltserver.NetAddrForHostPort(m.config.Host, m.config.Port)
+	dsn := fmt.Sprintf("%s:%s@%s/?timeout=5s&readTimeout=10s",
+		user, password, netAddr)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open health DB: %w", err)

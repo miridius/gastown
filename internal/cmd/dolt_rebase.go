@@ -85,8 +85,7 @@ func runDoltRebase(cmd *cobra.Command, args []string) error {
 	}
 
 	config := doltserver.DefaultConfig(townRoot)
-	dsn := fmt.Sprintf("%s@tcp(%s)/%s?parseTime=true&timeout=5s&readTimeout=60s&writeTimeout=300s",
-		config.User, config.HostPort(), dbName)
+	dsn := config.DSN(dbName, "parseTime=true&timeout=5s&readTimeout=60s&writeTimeout=300s")
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {

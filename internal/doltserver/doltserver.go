@@ -398,6 +398,63 @@ func (c *Config) HostPort() string {
 	return fmt.Sprintf("%s:%d", host, c.Port)
 }
 
+// SocketPath returns the Unix socket path that Dolt creates for this config's port.
+// Dolt uses /tmp/mysql.sock for the default MySQL port (3306) and
+// /tmp/mysql.<port>.sock for all other ports.
+func (c *Config) SocketPath() string {
+	return socketPathForPort(c.Port)
+}
+
+// NetAddr returns the Go MySQL driver network address, preferring the Unix socket
+// when available on localhost. Falls back to tcp(host:port) for remote hosts or
+// when the socket file doesn't exist.
+func (c *Config) NetAddr() string {
+	// Only use Unix socket for local connections
+	host := c.EffectiveHost()
+	if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+		sock := c.SocketPath()
+		if _, err := os.Stat(sock); err == nil {
+			return fmt.Sprintf("unix(%s)", sock)
+		}
+	}
+	return fmt.Sprintf("tcp(%s)", c.HostPort())
+}
+
+// DSN returns a full MySQL DSN string for connecting to this server.
+// db is the database name (empty for no database).
+// params is the query string (e.g. "parseTime=true&timeout=5s"), without leading "?".
+func (c *Config) DSN(db, params string) string {
+	s := fmt.Sprintf("%s@%s/%s", c.userDSN(), c.NetAddr(), db)
+	if params != "" {
+		s += "?" + params
+	}
+	return s
+}
+
+// NetAddrForHostPort returns a Go MySQL driver network address for the given host and port,
+// preferring the Unix socket when available on localhost.
+// This is a standalone helper for callers that don't have a Config.
+func NetAddrForHostPort(host string, port int) string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+		sock := socketPathForPort(port)
+		if _, err := os.Stat(sock); err == nil {
+			return fmt.Sprintf("unix(%s)", sock)
+		}
+	}
+	return fmt.Sprintf("tcp(%s:%d)", host, port)
+}
+
+// socketPathForPort returns the Unix socket path for a given port.
+func socketPathForPort(port int) string {
+	if port == 3306 {
+		return DefaultDoltSocketPath
+	}
+	return fmt.Sprintf("/tmp/mysql.%d.sock", port)
+}
+
 // buildDoltSQLCmd constructs a dolt sql command that works for both local and remote servers.
 // For local: runs from config.DataDir so dolt auto-detects the running server.
 // For remote: prepends connection flags and passes password via DOLT_CLI_PASSWORD env var.
@@ -1712,13 +1769,13 @@ func Stop(townRoot string) error {
 // Use GetConnectionStringForRig for a specific database.
 func GetConnectionString(townRoot string) string {
 	config := DefaultConfig(townRoot)
-	return fmt.Sprintf("%s@tcp(%s)/", config.displayDSN(), config.HostPort())
+	return fmt.Sprintf("%s@%s/", config.displayDSN(), config.NetAddr())
 }
 
 // GetConnectionStringForRig returns the MySQL connection string for a specific rig database.
 func GetConnectionStringForRig(townRoot, rigName string) string {
 	config := DefaultConfig(townRoot)
-	return fmt.Sprintf("%s@tcp(%s)/%s", config.displayDSN(), config.HostPort(), rigName)
+	return fmt.Sprintf("%s@%s/%s", config.displayDSN(), config.NetAddr(), rigName)
 }
 
 // displayDSN returns the user[:password] portion for display, masking any password.
@@ -3420,7 +3477,7 @@ func doltSQLWithRecovery(townRoot, rigDB, query string) error {
 func MeasureQueryLatency(townRoot string) (time.Duration, error) {
 	config := DefaultConfig(townRoot)
 
-	dsn := fmt.Sprintf("%s@tcp(127.0.0.1:%d)/", config.User, config.Port)
+	dsn := config.DSN("", "")
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return 0, fmt.Errorf("opening mysql connection: %w", err)

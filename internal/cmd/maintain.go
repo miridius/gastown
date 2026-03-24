@@ -289,8 +289,7 @@ func maintainBackupSync(dataDir, dbName, backupName string) error {
 
 // maintainOpenDB opens a connection to the Dolt server for a database.
 func maintainOpenDB(config *doltserver.Config, dbName string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s@tcp(%s)/%s?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s",
-		config.User, config.HostPort(), dbName)
+	dsn := config.DSN(dbName, "parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s")
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err

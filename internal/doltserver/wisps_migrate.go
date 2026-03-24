@@ -293,7 +293,7 @@ func ensureWispsOnGTServer(host string, port int, dbName string) (wispsCreated b
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	dsn := fmt.Sprintf("root@tcp(%s:%d)/%s?parseTime=true&timeout=10s", host, port, dbName)
+	dsn := fmt.Sprintf("root@%s/%s?parseTime=true&timeout=10s", NetAddrForHostPort(host, port), dbName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return false, nil, fmt.Errorf("connect to gt Dolt server: %w", err)

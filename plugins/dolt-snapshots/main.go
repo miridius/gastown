@@ -26,6 +26,22 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// netAddrForHostPort returns the Go MySQL driver network address, preferring
+// a Unix socket for localhost connections when the socket file exists.
+func netAddrForHostPort(host, port string) string {
+	if host == "" || host == "127.0.0.1" || host == "localhost" || host == "::1" {
+		// Dolt uses /tmp/mysql.sock for port 3306, /tmp/mysql.<port>.sock otherwise.
+		sock := "/tmp/mysql.sock"
+		if port != "3306" && port != "" {
+			sock = fmt.Sprintf("/tmp/mysql.%s.sock", port)
+		}
+		if _, err := os.Stat(sock); err == nil {
+			return fmt.Sprintf("unix(%s)", sock)
+		}
+	}
+	return fmt.Sprintf("tcp(%s:%s)", host, port)
+}
+
 var (
 	safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9-]`)
 	multiDash  = regexp.MustCompile(`-{2,}`)
@@ -67,7 +83,7 @@ func main() {
 		return
 	}
 
-	dsn := fmt.Sprintf("root@tcp(%s:%s)/information_schema?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s", h, p)
+	dsn := fmt.Sprintf("root@%s/information_schema?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s", netAddrForHostPort(h, p))
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to Dolt: %v", err)
@@ -603,7 +619,7 @@ func watchEvents(host, port, routesFile string, cleanup bool) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	dsn := fmt.Sprintf("root@tcp(%s:%s)/information_schema?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s", host, port)
+	dsn := fmt.Sprintf("root@%s/information_schema?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s", netAddrForHostPort(host, port))
 
 	log.Printf("Watching %s for convoy events...", eventsPath)
 

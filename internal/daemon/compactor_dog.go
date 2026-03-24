@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/doltserver"
 	"github.com/steveyegge/gastown/internal/reaper"
 )
 
@@ -593,8 +594,8 @@ func (d *Daemon) compactorCleanup(db *sql.DB, dbName string) {
 
 // compactorOpenDB opens a connection to the Dolt server for the given database.
 func (d *Daemon) compactorOpenDB(dbName string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("root@tcp(%s:%d)/%s?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s",
-		"127.0.0.1", d.doltServerPort(), dbName)
+	dsn := fmt.Sprintf("root@%s/%s?parseTime=true&timeout=5s&readTimeout=30s&writeTimeout=30s",
+		doltserver.NetAddrForHostPort("127.0.0.1", d.doltServerPort()), dbName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err

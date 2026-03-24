@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/steveyegge/gastown/internal/doltserver"
 )
 
@@ -142,6 +143,9 @@ type DoltServerManager struct {
 	// Protected by mu.
 	onRecoveryFn func()
 
+	// Persistent SQL connection for health checks (avoids subprocess per tick).
+	healthDB *sql.DB
+
 	// Test hooks (nil = use real implementations; set only in tests)
 	healthCheckFn      func() error
 	writeProbeCheckFn  func() error
@@ -263,6 +267,43 @@ func (m *DoltServerManager) buildDoltSQLCmd(ctx context.Context, args ...string)
 	}
 
 	return cmd
+}
+
+// getHealthDB returns (or lazily opens) a persistent *sql.DB for health checks.
+// Must be called with m.mu held.
+func (m *DoltServerManager) getHealthDB() (*sql.DB, error) {
+	if m.healthDB != nil {
+		return m.healthDB, nil
+	}
+	host := m.config.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	user := m.config.User
+	if user == "" {
+		user = "root"
+	}
+	password := m.config.Password
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?timeout=5s&readTimeout=10s",
+		user, password, host, m.config.Port)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open health DB: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	m.healthDB = db
+	return db, nil
+}
+
+// closeHealthDB closes the persistent health check connection.
+// Must be called with m.mu held.
+func (m *DoltServerManager) closeHealthDB() {
+	if m.healthDB != nil {
+		m.healthDB.Close()
+		m.healthDB = nil
+	}
 }
 
 // HealthCheckInterval returns the configured health check interval,
@@ -865,6 +906,7 @@ func (m *DoltServerManager) captureGoroutineDump() {
 }
 
 func (m *DoltServerManager) stopLocked() {
+	m.closeHealthDB()
 	if m.stopFn != nil {
 		m.stopFn()
 		return
@@ -936,17 +978,20 @@ func (m *DoltServerManager) checkHealthLocked() error {
 	// Per Tim Sehn (Dolt CEO): active_branch() is a lightweight probe that
 	// won't block behind queued queries, unlike SELECT 1 which goes through
 	// the full query executor.
+	db, err := m.getHealthDB()
+	if err != nil {
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), doltCmdTimeout)
 	defer cancel()
 
 	start := time.Now()
-	cmd := m.buildDoltSQLCmd(ctx, "-q", "SELECT active_branch()")
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("health check failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	var branch sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT active_branch()").Scan(&branch); err != nil {
+		// Connection may be stale; close and let next tick retry with fresh conn.
+		m.closeHealthDB()
+		return fmt.Errorf("health check failed: %w", err)
 	}
 
 	latency := time.Since(start)
@@ -995,25 +1040,17 @@ func (m *DoltServerManager) LastWarnings() []string {
 // checkConnectionCount queries the connection count and returns a warning if approaching the limit.
 // Non-fatal: failures return empty string.
 func (m *DoltServerManager) checkConnectionCount() string {
-	ctx, cancel := context.WithTimeout(context.Background(), doltCmdTimeout)
-	defer cancel()
-	cmd := m.buildDoltSQLCmd(ctx,
-		"-r", "csv",
-		"-q", "SELECT COUNT(*) AS cnt FROM information_schema.PROCESSLIST",
-	)
-
-	output, err := cmd.Output()
+	db, err := m.getHealthDB()
 	if err != nil {
 		return "" // non-fatal
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) < 2 {
-		return ""
-	}
-	count, err := strconv.Atoi(strings.TrimSpace(lines[len(lines)-1]))
-	if err != nil {
-		return ""
+	ctx, cancel := context.WithTimeout(context.Background(), doltCmdTimeout)
+	defer cancel()
+
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.PROCESSLIST").Scan(&count); err != nil {
+		return "" // non-fatal
 	}
 
 	// Use the doltserver package default (50) as a reasonable cap reference

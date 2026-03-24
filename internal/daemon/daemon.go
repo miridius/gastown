@@ -96,6 +96,11 @@ type Daemon struct {
 	// Only accessed from heartbeat loop goroutine - no sync needed.
 	lastDoctorMolTime time.Time
 
+	// lastDoltHealth caches the most recent Dolt health metrics from ensureDoltServerRunning().
+	// Used by isDoltUnderPressure() to gate non-critical heartbeat operations without
+	// opening additional connections. Only accessed from heartbeat loop goroutine.
+	lastDoltHealth *doltserver.HealthMetrics
+
 	// lastMaintenanceRun tracks when scheduled maintenance last ran.
 	// Only accessed from heartbeat loop goroutine - no sync needed.
 	lastMaintenanceRun time.Time
@@ -736,39 +741,48 @@ func (d *Daemon) heartbeat(state *State) {
 
 	// 9. (Removed) Stale agent check - violated "discover, don't track"
 
-	// 10. Check for GUPP violations (agents with work-on-hook not progressing)
-	d.checkGUPPViolations()
-
-	// 11. Check for orphaned work (assigned to dead agents)
-	d.checkOrphanedWork()
-
-	// 12. Check polecat session health (proactive crash detection)
-	// This validates tmux sessions are still alive for polecats with work-on-hook
-	d.checkPolecatSessionHealth()
-
-	// 12b. Reap idle polecat sessions to prevent API slot burn.
-	// Polecats transition to IDLE after gt done but sessions stay alive.
-	// Kill sessions that have been idle longer than the configured threshold.
-	d.reapIdlePolecats()
-
-	// 13. Clean up orphaned claude subagent processes (memory leak prevention)
-	// These are Task tool subagents that didn't clean up after completion.
-	// This is a safety net - Deacon patrol also does this more frequently.
-	d.cleanupOrphanedProcesses()
-
-	// 13. Prune stale local polecat tracking branches across all rig clones.
-	// When polecats push branches to origin, other clones create local tracking
-	// branches via git fetch. After merge, remote branches are deleted but local
-	// branches persist indefinitely. This cleans them up periodically.
-	d.pruneStaleBranches()
-
-	// 14. Dispatch scheduled work (capacity-controlled polecat dispatch).
-	// Shells out to `gt scheduler run` to avoid circular import between daemon and cmd.
-	// Pressure-gated: polecats are the primary resource consumers.
-	if p := d.checkPressure("polecat"); !p.OK {
-		d.logger.Printf("Deferring polecat dispatch: %s", p.Reason)
+	// Dolt connection pressure gate: when Dolt connections exceed 80% of max,
+	// skip non-critical operations that shell out to `bd` and open new connections.
+	// This prevents the heartbeat from making connection saturation worse. (gt-pai)
+	if d.isDoltUnderPressure() {
+		h := d.lastDoltHealth
+		d.logger.Printf("Dolt under pressure (%d/%d connections, %.0f%%), skipping non-critical checks",
+			h.Connections, h.MaxConnections, h.ConnectionPct)
 	} else {
-		d.dispatchQueuedWork()
+		// 10. Check for GUPP violations (agents with work-on-hook not progressing)
+		d.checkGUPPViolations()
+
+		// 11. Check for orphaned work (assigned to dead agents)
+		d.checkOrphanedWork()
+
+		// 12. Check polecat session health (proactive crash detection)
+		// This validates tmux sessions are still alive for polecats with work-on-hook
+		d.checkPolecatSessionHealth()
+
+		// 12b. Reap idle polecat sessions to prevent API slot burn.
+		// Polecats transition to IDLE after gt done but sessions stay alive.
+		// Kill sessions that have been idle longer than the configured threshold.
+		d.reapIdlePolecats()
+
+		// 13. Clean up orphaned claude subagent processes (memory leak prevention)
+		// These are Task tool subagents that didn't clean up after completion.
+		// This is a safety net - Deacon patrol also does this more frequently.
+		d.cleanupOrphanedProcesses()
+
+		// 13. Prune stale local polecat tracking branches across all rig clones.
+		// When polecats push branches to origin, other clones create local tracking
+		// branches via git fetch. After merge, remote branches are deleted but local
+		// branches persist indefinitely. This cleans them up periodically.
+		d.pruneStaleBranches()
+
+		// 14. Dispatch scheduled work (capacity-controlled polecat dispatch).
+		// Shells out to `gt scheduler run` to avoid circular import between daemon and cmd.
+		// Pressure-gated: polecats are the primary resource consumers.
+		if p := d.checkPressure("polecat"); !p.OK {
+			d.logger.Printf("Deferring polecat dispatch: %s", p.Reason)
+		} else {
+			d.dispatchQueuedWork()
+		}
 	}
 
 	// 15. Rotate oversized Dolt logs (copytruncate for child process fds).
@@ -820,8 +834,10 @@ func (d *Daemon) ensureDoltServerRunning() {
 	}
 
 	// Update OTel gauges with the latest Dolt health snapshot.
+	// Cache the result for isDoltUnderPressure() — avoids opening extra connections.
+	h := doltserver.GetHealthMetrics(d.config.TownRoot)
+	d.lastDoltHealth = h
 	if d.metrics != nil {
-		h := doltserver.GetHealthMetrics(d.config.TownRoot)
 		d.metrics.updateDoltHealth(
 			int64(h.Connections),
 			int64(h.MaxConnections),
@@ -830,6 +846,16 @@ func (d *Daemon) ensureDoltServerRunning() {
 			h.Healthy,
 		)
 	}
+}
+
+// isDoltUnderPressure returns true when the Dolt server's connection count
+// exceeds 80% of MaxConnections. Uses cached metrics from ensureDoltServerRunning()
+// so this check adds zero connection overhead.
+func (d *Daemon) isDoltUnderPressure() bool {
+	if d.lastDoltHealth == nil {
+		return false // No metrics yet — don't block on first heartbeat
+	}
+	return d.lastDoltHealth.ConnectionPct >= 80
 }
 
 // pourDoctorMolecule creates a mol-dog-doctor molecule to track a health anomaly.

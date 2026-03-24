@@ -106,12 +106,6 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 		env["GT_POLECAT"] = cfg.AgentName
 		env["BD_ACTOR"] = fmt.Sprintf("%s/polecats/%s", cfg.Rig, cfg.AgentName)
 		env["GIT_AUTHOR_NAME"] = cfg.AgentName
-		// Disable Dolt auto-commit for polecats. With branch-per-polecat,
-		// individual commits are pointless — all changes merge at gt done time
-		// via DOLT_MERGE. Without this, concurrent polecats cause manifest
-		// contention leading to Dolt read-only mode (gt-5cc2p).
-		env["BD_DOLT_AUTO_COMMIT"] = "off"
-
 	case constants.RoleCrew:
 		env["GT_ROLE"] = fmt.Sprintf("%s/crew/%s", cfg.Rig, cfg.AgentName)
 		env["GT_RIG"] = cfg.Rig
@@ -132,6 +126,13 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 			env["GIT_AUTHOR_NAME"] = "dog"
 		}
 	}
+
+	// Disable Dolt auto-commit globally. Most bd invocations are reads that
+	// don't need commits. The few write paths that do (convoy creation, sling,
+	// formula steps) use WithAutoCommit() to re-enable per-invocation.
+	// Without this, every bd call triggers DOLT_COMMIT → "nothing to commit"
+	// error → wasted connection + CPU churn on Dolt (gt-01f root cause).
+	env["BD_DOLT_AUTO_COMMIT"] = "off"
 
 	// Only set GT_ROOT if provided
 	// Empty values would override tmux session environment

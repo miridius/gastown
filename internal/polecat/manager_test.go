@@ -1739,6 +1739,8 @@ func TestReuseIdlePolecat_KillsLiveSession(t *testing.T) {
 	// Create a live tmux session (simulates Claude sitting at ❯ after gt done)
 	sessMgr := NewSessionManager(tm, r)
 	sessionName := sessMgr.SessionName(polecatName)
+	// Kill any leftover session from a prior interrupted test run
+	_ = tm.KillSessionWithProcesses(sessionName)
 	if err := tm.NewSessionWithCommand(sessionName, townRoot, "sleep 300"); err != nil {
 		t.Fatalf("create tmux session: %v", err)
 	}
@@ -1823,6 +1825,8 @@ func TestReuseIdlePolecat_KillsStaleSession(t *testing.T) {
 
 	sessMgr := NewSessionManager(tm, r)
 	sessionName := sessMgr.SessionName(polecatName)
+	// Kill any leftover session from a prior interrupted test run
+	_ = tm.KillSessionWithProcesses(sessionName)
 	if err := tm.NewSessionWithCommand(sessionName, townRoot, "sleep 300"); err != nil {
 		t.Fatalf("create tmux session: %v", err)
 	}

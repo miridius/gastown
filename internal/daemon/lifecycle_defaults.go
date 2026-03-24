@@ -6,10 +6,10 @@ package daemon
 // All patrols are enabled with conservative intervals:
 //   - Wisp Reaper (DECAY): every 30m, delete closed wisps after 7d
 //   - Compactor Dog (COMPACT): every 24h, threshold 2000 commits
-//   - Checkpoint Dog: every 10m, auto-commit dirty polecat worktrees
-//   - Doctor Dog (health): every 10m
-//   - JSONL Git Backup: every 15m
-//   - Dolt Filesystem Backup: every 15m
+//   - Checkpoint Dog: every 30m, auto-commit dirty polecat worktrees
+//   - Doctor Dog (health): every 15m
+//   - JSONL Git Backup: every 30m
+//   - Dolt Filesystem Backup: every 30m
 //   - Scheduled Maintenance (FLATTEN): daily at 03:00, threshold 1000
 //   - Main Branch Test: every 30m, 10m timeout per rig
 func DefaultLifecycleConfig() *DaemonPatrolConfig {
@@ -32,11 +32,11 @@ func DefaultLifecycleConfig() *DaemonPatrolConfig {
 			},
 			CheckpointDog: &CheckpointDogConfig{
 				Enabled:     true,
-				IntervalStr: "10m",
+				IntervalStr: "30m",
 			},
 			DoctorDog: &DoctorDogConfig{
 				Enabled:     true,
-				IntervalStr: "10m",
+				IntervalStr: "15m",
 			},
 			Deacon: &PatrolConfig{
 				Enabled:  true,
@@ -45,12 +45,12 @@ func DefaultLifecycleConfig() *DaemonPatrolConfig {
 			},
 			JsonlGitBackup: &JsonlGitBackupConfig{
 				Enabled:     true,
-				IntervalStr: "15m",
+				IntervalStr: "30m",
 				Scrub:       &scrub,
 			},
 			DoltBackup: &DoltBackupConfig{
 				Enabled:     true,
-				IntervalStr: "15m",
+				IntervalStr: "30m",
 			},
 			ScheduledMaintenance: &ScheduledMaintenanceConfig{
 				Enabled:   true,

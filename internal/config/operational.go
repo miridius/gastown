@@ -45,7 +45,7 @@ const (
 	DefaultMaxLifecycleMessageAge          = 6 * time.Hour
 	DefaultSyncFailureEscalationThreshold  = 3
 	DefaultDoctorMolCooldown               = 5 * time.Minute
-	DefaultRecoveryHeartbeatInterval       = 3 * time.Minute
+	DefaultRecoveryHeartbeatInterval       = 5 * time.Minute
 	DefaultBootSpawnCooldown               = 2 * time.Minute
 	DefaultDeaconGracePeriod               = 5 * time.Minute
 

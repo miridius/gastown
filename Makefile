@@ -20,36 +20,13 @@ LDFLAGS := -X github.com/steveyegge/gastown/internal/cmd.Version=$(VERSION) \
            -X github.com/steveyegge/gastown/internal/cmd.BuildTime=$(BUILD_TIME) \
            -X github.com/steveyegge/gastown/internal/cmd.BuiltProperly=1
 
-# ICU4C detection for macOS (required by go-icu-regex transitive dependency).
-# Homebrew installs icu4c as a keg-only package, so headers/libs aren't on the
-# default search path. Auto-detect the prefix and export CGo flags.
-ifeq ($(shell uname),Darwin)
-  ICU_PREFIX := $(shell brew --prefix icu4c 2>/dev/null)
-  ifneq ($(ICU_PREFIX),)
-    export CGO_CPPFLAGS += -I$(ICU_PREFIX)/include
-    export CGO_LDFLAGS  += -L$(ICU_PREFIX)/lib
-  endif
-endif
-
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY)-proxy-server ./cmd/gt-proxy-server
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY)-proxy-client ./cmd/gt-proxy-client
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/gt
-ifeq ($(shell uname),Darwin)
-	@codesign -s - -f $(BUILD_DIR)/$(BINARY)-proxy-server 2>/dev/null || true
-	@echo "Signed $(BINARY)-proxy-server for macOS"
-	@codesign -s - -f $(BUILD_DIR)/$(BINARY)-proxy-client 2>/dev/null || true
-	@echo "Signed $(BINARY)-proxy-client for macOS"
-	@codesign -s - -f $(BUILD_DIR)/$(BINARY) 2>/dev/null || true
-	@echo "Signed $(BINARY) for macOS"
-endif
 
 desktop-build:
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_DESKTOP) ./cmd/gt-desktop
-ifeq ($(shell uname),Darwin)
-	@codesign -s - -f $(BUILD_DIR)/$(BINARY_DESKTOP) 2>/dev/null || true
-	@echo "Signed $(BINARY_DESKTOP) for macOS"
-endif
 
 desktop-run:
 	go run ./cmd/gt-desktop
@@ -158,10 +135,6 @@ test:
 
 # Run e2e tests in isolated container (the only supported way to run them)
 test-e2e-container:
-ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "$$max=$(E2E_BUILD_RETRIES); for($$i=1; $$i -le $$max; $$i++){ docker build $(E2E_BUILD_FLAGS) -f Dockerfile.e2e -t $(E2E_IMAGE) .; if($$LASTEXITCODE -eq 0){ break }; if($$i -eq $$max){ exit 1 }; Write-Host ('docker build failed (attempt ' + $$i + '), retrying...'); Start-Sleep -Seconds 2 }"
-	@powershell -NoProfile -Command "$$max=$(E2E_RUN_RETRIES); for($$i=1; $$i -le $$max; $$i++){ docker run $(E2E_RUN_FLAGS) $(E2E_IMAGE); if($$LASTEXITCODE -eq 0){ break }; if($$i -eq $$max){ exit 1 }; Write-Host ('docker run failed (attempt ' + $$i + '), retrying...'); Start-Sleep -Seconds 2 }"
-else
 	@attempt=1; \
 	while [ $$attempt -le $(E2E_BUILD_RETRIES) ]; do \
 		docker build $(E2E_BUILD_FLAGS) -f Dockerfile.e2e -t $(E2E_IMAGE) . && break; \
@@ -178,4 +151,3 @@ else
 		attempt=$$((attempt+1)); \
 		sleep 2; \
 	done
-endif

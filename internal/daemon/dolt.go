@@ -857,27 +857,11 @@ func (m *DoltServerManager) Stop() error {
 }
 
 // stopLocked stops the Dolt server. Must be called with m.mu held.
-// captureGoroutineDump sends SIGQUIT to the Dolt server to dump goroutine stacks
-// to its log file. Per Tim Sehn (Dolt CEO): kill -QUIT prints all goroutine stacks
-// to stderr, which is redirected to the server log. Called before stopping an
-// unhealthy server so the dump captures what it was stuck on.
+// captureGoroutineDump is disabled: SIGQUIT terminates Dolt instead of dumping
+// goroutines. Empirically verified 2026-03-24 — multiple self-inflicted crashes.
+// See gt-fxq for tracking. This is now a no-op.
 func (m *DoltServerManager) captureGoroutineDump() {
-	pid, running := m.isRunning()
-	if !running {
-		return
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return
-	}
-	m.logger("Capturing goroutine dump from Dolt server (PID %d) before restart...", pid)
-	if err := process.Signal(syscall.SIGQUIT); err != nil {
-		m.logger("Warning: failed to send SIGQUIT for goroutine dump: %v", err)
-		return
-	}
-	// Give the server a moment to write the dump to its log file.
-	time.Sleep(500 * time.Millisecond)
-	m.logger("Goroutine dump written to server log. View with: gt dolt logs -n 200")
+	// SIGQUIT kills Dolt on this version. Do not send it.
 }
 
 func (m *DoltServerManager) stopLocked() {

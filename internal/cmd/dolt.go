@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -727,18 +726,11 @@ func runDoltDump(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("finding process %d: %w", pid, err)
 	}
 
-	fmt.Printf("Sending SIGQUIT to Dolt server (PID %d)...\n", pid)
-	if err := proc.Signal(syscall.SIGQUIT); err != nil {
-		return fmt.Errorf("sending SIGQUIT: %w", err)
-	}
-
-	// Give the server a moment to write the dump
-	time.Sleep(500 * time.Millisecond)
-
-	fmt.Printf("Goroutine stack dump written to: %s\n", config.LogFile)
-	fmt.Printf("View with: gt dolt logs -n 200\n")
-
-	return nil
+	// SIGQUIT terminates Dolt on this version instead of dumping goroutines.
+	// Disabled 2026-03-24 after multiple self-inflicted crashes. See gt-fxq.
+	_ = proc
+	_ = config
+	return fmt.Errorf("gt dolt dump is disabled: SIGQUIT kills Dolt on this version (see gt-fxq)")
 }
 
 func runDoltSQL(cmd *cobra.Command, args []string) error {

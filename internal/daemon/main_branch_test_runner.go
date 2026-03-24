@@ -7,11 +7,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/steveyegge/gastown/internal/rig"
 )
+
+// gateOrder defines the canonical execution order for gates.
+// Gates not in this list are appended alphabetically after these.
+var gateOrder = []string{"setup", "build", "typecheck", "lint", "test"}
 
 const (
 	defaultMainBranchTestInterval = 30 * time.Minute
@@ -247,11 +252,41 @@ func (d *Daemon) testRigMainBranch(rigName, rigPath string, timeout time.Duratio
 	return d.runCommandOnWorktree(ctx, rigName, worktreePath, "test", gateCfg.TestCommand)
 }
 
+// orderedGateNames returns gate names in canonical execution order.
+// Known gates (setup, build, typecheck, lint, test) run first in that order,
+// followed by any unknown gates in alphabetical order.
+func orderedGateNames(gates map[string]string) []string {
+	ordered := make([]string, 0, len(gates))
+	seen := make(map[string]bool, len(gates))
+
+	// Add known gates in canonical order
+	for _, name := range gateOrder {
+		if _, ok := gates[name]; ok {
+			ordered = append(ordered, name)
+			seen[name] = true
+		}
+	}
+
+	// Collect and sort unknown gates
+	var unknown []string
+	for name := range gates {
+		if !seen[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	sort.Strings(unknown)
+	ordered = append(ordered, unknown...)
+
+	return ordered
+}
+
 // runGatesOnWorktree runs all configured gates sequentially on the given worktree.
+// Gates run in a defined order: setup → build → typecheck → lint → test,
+// with any unknown gates appended alphabetically after.
 func (d *Daemon) runGatesOnWorktree(ctx context.Context, rigName, workDir string, gates map[string]string) error {
 	var failures []string
-	for name, cmd := range gates {
-		if err := d.runCommandOnWorktree(ctx, rigName, workDir, name, cmd); err != nil {
+	for _, name := range orderedGateNames(gates) {
+		if err := d.runCommandOnWorktree(ctx, rigName, workDir, name, gates[name]); err != nil {
 			failures = append(failures, fmt.Sprintf("gate %q: %v", name, err))
 		}
 	}

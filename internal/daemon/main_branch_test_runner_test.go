@@ -199,6 +199,71 @@ func TestLoadRigGateConfig(t *testing.T) {
 	})
 }
 
+func TestOrderedGateNames(t *testing.T) {
+	t.Run("canonical order", func(t *testing.T) {
+		gates := map[string]string{
+			"test":      "go test ./...",
+			"lint":      "golangci-lint run",
+			"setup":     "bun install",
+			"build":     "go build ./...",
+			"typecheck": "tsc --noEmit",
+		}
+		got := orderedGateNames(gates)
+		want := []string{"setup", "build", "typecheck", "lint", "test"}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d gates, got %d: %v", len(want), len(got), got)
+		}
+		for i, name := range want {
+			if got[i] != name {
+				t.Errorf("position %d: expected %q, got %q (full order: %v)", i, name, got[i], got)
+			}
+		}
+	})
+
+	t.Run("unknown gates appended alphabetically", func(t *testing.T) {
+		gates := map[string]string{
+			"test":    "go test ./...",
+			"setup":   "bun install",
+			"deploy":  "deploy.sh",
+			"analyze": "analyzer run",
+		}
+		got := orderedGateNames(gates)
+		want := []string{"setup", "test", "analyze", "deploy"}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d gates, got %d: %v", len(want), len(got), got)
+		}
+		for i, name := range want {
+			if got[i] != name {
+				t.Errorf("position %d: expected %q, got %q (full order: %v)", i, name, got[i], got)
+			}
+		}
+	})
+
+	t.Run("subset of known gates", func(t *testing.T) {
+		gates := map[string]string{
+			"test": "go test ./...",
+			"lint": "golangci-lint run",
+		}
+		got := orderedGateNames(gates)
+		want := []string{"lint", "test"}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d gates, got %d: %v", len(want), len(got), got)
+		}
+		for i, name := range want {
+			if got[i] != name {
+				t.Errorf("position %d: expected %q, got %q", i, name, got[i])
+			}
+		}
+	})
+
+	t.Run("empty gates", func(t *testing.T) {
+		got := orderedGateNames(map[string]string{})
+		if len(got) != 0 {
+			t.Errorf("expected empty, got %v", got)
+		}
+	})
+}
+
 func TestContains(t *testing.T) {
 	if !sliceContains([]string{"a", "b", "c"}, "b") {
 		t.Error("expected true for 'b' in [a b c]")

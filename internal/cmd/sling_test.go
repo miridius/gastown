@@ -1554,16 +1554,16 @@ func TestCheckCrossRigGuard(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			name:        "town-level: hq bead to rig (rejected — belongs to town root)",
+			name:        "town-level: hq bead to rig (allowed — orchestration beads target any rig)",
 			beadID:      "hq-abc123",
 			targetAgent: "gastown/polecats/Toast",
-			wantErr:     true,
+			wantErr:     false,
 		},
 		{
-			name:        "unknown prefix: rejected (no route maps to target rig)",
+			name:        "unknown prefix: allowed (no route — cannot determine rig)",
 			beadID:      "xx-unknown",
 			targetAgent: "gastown/polecats/Toast",
-			wantErr:     true,
+			wantErr:     false,
 		},
 		{
 			name:        "empty bead prefix: allowed",

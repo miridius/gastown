@@ -130,6 +130,7 @@ type PatrolsConfig struct {
 	ScheduledMaintenance   *ScheduledMaintenanceConfig    `json:"scheduled_maintenance,omitempty"`
 	MainBranchTest         *MainBranchTestConfig          `json:"main_branch_test,omitempty"`
 	RestartTracker         *RestartTrackerConfig          `json:"restart_tracker,omitempty"`
+	Dashboard              *DashboardConfig               `json:"dashboard,omitempty"`
 }
 
 // DoltRemotesConfig holds configuration for the dolt_remotes patrol.
@@ -300,6 +301,12 @@ func IsPatrolEnabled(config *DaemonPatrolConfig, patrol string) bool {
 			return false
 		}
 		return config.Patrols.MainBranchTest.Enabled
+	}
+	if patrol == "dashboard" {
+		if config == nil || config.Patrols == nil || config.Patrols.Dashboard == nil {
+			return false
+		}
+		return config.Patrols.Dashboard.Enabled
 	}
 
 	if config == nil || config.Patrols == nil {

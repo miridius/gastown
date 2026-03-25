@@ -119,6 +119,7 @@ This is the idempotent "boot" command for Gas Town. It ensures all
 infrastructure agents are running:
 
   • Dolt       - Shared SQL database server for beads
+  • Dashboard  - Persistent web dashboard (if configured)
   • Daemon     - Go background process that pokes agents
   • Deacon     - Health orchestrator (monitors Mayor/Witnesses)
   • Mayor      - Global work coordinator
@@ -196,9 +197,12 @@ func runUp(cmd *cobra.Command, args []string) error {
 	var doltOK bool
 	var doltDetail string
 	var doltSkipped bool
+	var dashboardOK bool
+	var dashboardDetail string
+	var dashboardSkipped bool
 
 	var startupWg sync.WaitGroup
-	startupWg.Add(5)
+	startupWg.Add(6)
 
 	// 0. Dolt server (if configured)
 	go func() {
@@ -219,6 +223,39 @@ func runUp(cmd *cobra.Command, args []string) error {
 		} else {
 			doltOK = true
 			doltDetail = fmt.Sprintf("started (port %d)", cfg.Port)
+		}
+	}()
+
+	// 0b. Dashboard (if configured in daemon.json)
+	go func() {
+		defer startupWg.Done()
+		patrolCfg := daemon.LoadPatrolConfig(townRoot)
+		if !daemon.IsPatrolEnabled(patrolCfg, "dashboard") {
+			dashboardSkipped = true
+			return
+		}
+		running, _ := daemon.DashboardIsRunning(townRoot)
+		if running {
+			dashboardOK = true
+			dashboardDetail = "already running"
+			return
+		}
+		// Get configured port/bind
+		port := daemon.DefaultDashboardPort
+		bind := "127.0.0.1"
+		if patrolCfg != nil && patrolCfg.Patrols != nil && patrolCfg.Patrols.Dashboard != nil {
+			if patrolCfg.Patrols.Dashboard.Port > 0 {
+				port = patrolCfg.Patrols.Dashboard.Port
+			}
+			if patrolCfg.Patrols.Dashboard.Bind != "" {
+				bind = patrolCfg.Patrols.Dashboard.Bind
+			}
+		}
+		if err := daemon.DashboardStart(townRoot, port, bind); err != nil {
+			dashboardDetail = err.Error()
+		} else {
+			dashboardOK = true
+			dashboardDetail = fmt.Sprintf("started (port %d)", port)
 		}
 	}()
 
@@ -284,6 +321,14 @@ func runUp(cmd *cobra.Command, args []string) error {
 	if !doltSkipped {
 		services = append(services, ServiceStatus{Name: "Dolt", Type: "dolt", OK: doltOK, Detail: doltDetail})
 		if !doltOK {
+			allOK = false
+		}
+	}
+
+	// Collect Dashboard status (if configured)
+	if !dashboardSkipped {
+		services = append(services, ServiceStatus{Name: "Dashboard", Type: "dashboard", OK: dashboardOK, Detail: dashboardDetail})
+		if !dashboardOK {
 			allOK = false
 		}
 	}

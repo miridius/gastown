@@ -68,8 +68,9 @@ type TownStatus struct {
 	Overseer *OverseerInfo  `json:"overseer,omitempty"` // Human operator
 	DND      *DNDInfo       `json:"dnd,omitempty"`      // Current agent DND status
 	Daemon   *ServiceInfo   `json:"daemon,omitempty"`   // Daemon status
-	Dolt     *DoltInfo      `json:"dolt,omitempty"`     // Dolt server status
-	Tmux     *TmuxInfo      `json:"tmux,omitempty"`     // Tmux server status
+	Dolt      *DoltInfo      `json:"dolt,omitempty"`      // Dolt server status
+	Dashboard *DashboardInfo `json:"dashboard,omitempty"` // Dashboard status
+	Tmux      *TmuxInfo      `json:"tmux,omitempty"`      // Tmux server status
 	ACP      *ServiceInfo   `json:"acp,omitempty"`      // ACP mayor status
 	Agents   []AgentRuntime `json:"agents"`             // Global agents (Mayor, Deacon)
 	Rigs     []RigStatus    `json:"rigs"`
@@ -91,6 +92,14 @@ type DoltInfo struct {
 	DataDir       string `json:"data_dir,omitempty"`
 	PortConflict  bool   `json:"port_conflict,omitempty"`  // Port taken by another town's Dolt
 	ConflictOwner string `json:"conflict_owner,omitempty"` // --data-dir of the process holding the port
+}
+
+// DashboardInfo represents the dashboard server status.
+type DashboardInfo struct {
+	Running bool   `json:"running"`
+	PID     int    `json:"pid,omitempty"`
+	Port    int    `json:"port"`
+	URL     string `json:"url,omitempty"`
 }
 
 // TmuxInfo represents the tmux server status.
@@ -830,6 +839,27 @@ func gatherStatus() (TownStatus, error) {
 		status.Dolt = doltInfo
 	}
 
+	// Dashboard status
+	dashPatrolCfg := daemon.LoadPatrolConfig(townRoot)
+	dashPort := daemon.DefaultDashboardPort
+	if dashPatrolCfg != nil && dashPatrolCfg.Patrols != nil && dashPatrolCfg.Patrols.Dashboard != nil && dashPatrolCfg.Patrols.Dashboard.Port > 0 {
+		dashPort = dashPatrolCfg.Patrols.Dashboard.Port
+	}
+	dashRunning, dashPid := daemon.DashboardIsRunning(townRoot)
+	if dashRunning {
+		status.Dashboard = &DashboardInfo{
+			Running: true,
+			PID:     dashPid,
+			Port:    dashPort,
+			URL:     fmt.Sprintf("http://localhost:%d", dashPort),
+		}
+	} else if daemon.IsPatrolEnabled(dashPatrolCfg, "dashboard") {
+		status.Dashboard = &DashboardInfo{
+			Running: false,
+			Port:    dashPort,
+		}
+	}
+
 	// Tmux status
 	socket := tmux.GetDefaultSocket()
 	socketLabel := "default"
@@ -995,7 +1025,7 @@ func outputStatusText(w io.Writer, status TownStatus) error {
 	}
 
 	// Infrastructure services
-	if status.Daemon != nil || status.Dolt != nil || status.Tmux != nil {
+	if status.Daemon != nil || status.Dolt != nil || status.Dashboard != nil || status.Tmux != nil {
 		fmt.Fprintf(w, "%s ", style.Bold.Render("Services:"))
 		var parts []string
 		if status.Daemon != nil {
@@ -1018,6 +1048,13 @@ func outputStatusText(w io.Writer, status TownStatus) error {
 				parts = append(parts, fmt.Sprintf("dolt %s", style.Bold.Render(fmt.Sprintf("(stopped, :%d ⚠ port used by %s)", status.Dolt.Port, status.Dolt.ConflictOwner))))
 			} else {
 				parts = append(parts, fmt.Sprintf("dolt %s", style.Dim.Render(fmt.Sprintf("(stopped, :%d)", status.Dolt.Port))))
+			}
+		}
+		if status.Dashboard != nil {
+			if status.Dashboard.Running {
+				parts = append(parts, fmt.Sprintf("dashboard %s", style.Dim.Render(fmt.Sprintf("(PID %d, :%d)", status.Dashboard.PID, status.Dashboard.Port))))
+			} else {
+				parts = append(parts, fmt.Sprintf("dashboard %s", style.Dim.Render(fmt.Sprintf("(stopped, :%d)", status.Dashboard.Port))))
 			}
 		}
 		if status.Tmux != nil {

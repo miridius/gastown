@@ -54,6 +54,7 @@ type Daemon struct {
 	convoyManager *ConvoyManager
 	beadsStores   map[string]beadsdk.Storage
 	doltServer *DoltServerManager
+	dashboard  *DashboardManager
 	krcPruner  *KRCPruner
 
 	// Mass death detection: track recent session deaths
@@ -216,6 +217,19 @@ func New(config *Config) (*Daemon, error) {
 		}
 	}
 
+	// Initialize dashboard manager if configured
+	var dashboard *DashboardManager
+	if patrolConfig != nil && patrolConfig.Patrols != nil && patrolConfig.Patrols.Dashboard != nil {
+		dashboard = NewDashboardManager(config.TownRoot, patrolConfig.Patrols.Dashboard, logger.Printf)
+		if dashboard.IsEnabled() {
+			port := patrolConfig.Patrols.Dashboard.Port
+			if port == 0 {
+				port = DefaultDashboardPort
+			}
+			logger.Printf("Dashboard management enabled (port %d)", port)
+		}
+	}
+
 	// PATCH-006: Resolve binary paths at startup.
 	gtPath, err := exec.LookPath("gt")
 	if err != nil {
@@ -273,6 +287,7 @@ func New(config *Config) (*Daemon, error) {
 		ctx:            ctx,
 		cancel:         cancel,
 		doltServer:     doltServer,
+		dashboard:      dashboard,
 		gtPath:         gtPath,
 		bdPath:         bdPath,
 		restartTracker: restartTracker,
@@ -404,6 +419,21 @@ func (d *Daemon) Run() error {
 		doltHealthChan = doltHealthTicker.C
 		defer doltHealthTicker.Stop()
 		d.logger.Printf("Dolt health check ticker started (interval %v)", interval)
+	}
+
+	// Start dashboard health check ticker if dashboard is configured.
+	var dashboardHealthTicker *time.Ticker
+	var dashboardHealthChan <-chan time.Time
+	if d.dashboard != nil && d.dashboard.IsEnabled() {
+		// Start dashboard immediately on daemon startup
+		if err := d.dashboard.EnsureRunning(); err != nil {
+			d.logger.Printf("Warning: failed to start dashboard on daemon startup: %v", err)
+		}
+		interval := d.dashboard.HealthCheckInterval()
+		dashboardHealthTicker = time.NewTicker(interval)
+		dashboardHealthChan = dashboardHealthTicker.C
+		defer dashboardHealthTicker.Stop()
+		d.logger.Printf("Dashboard health check ticker started (interval %v)", interval)
 	}
 
 	// Start dedicated Dolt remotes push ticker if configured.
@@ -553,6 +583,12 @@ func (d *Daemon) Run() error {
 			// of the 3-minute general heartbeat.
 			if !d.isShutdownInProgress() {
 				d.ensureDoltServerRunning()
+			}
+
+		case <-dashboardHealthChan:
+			// Dashboard health check — restart if crashed.
+			if !d.isShutdownInProgress() {
+				d.ensureDashboardRunning()
 			}
 
 		case <-doltRemotesChan:
@@ -845,6 +881,17 @@ func (d *Daemon) ensureDoltServerRunning() {
 			h.DiskUsageBytes,
 			h.Healthy,
 		)
+	}
+}
+
+// ensureDashboardRunning ensures the dashboard HTTP server is running if configured.
+func (d *Daemon) ensureDashboardRunning() {
+	if d.dashboard == nil || !d.dashboard.IsEnabled() {
+		return
+	}
+
+	if err := d.dashboard.EnsureRunning(); err != nil {
+		d.logger.Printf("Error ensuring dashboard is running: %v", err)
 	}
 }
 
@@ -1635,6 +1682,15 @@ func (d *Daemon) shutdown(state *State) error { //nolint:unparam // error return
 
 	// Push Dolt remotes before stopping the server (if patrol is enabled)
 	d.pushDoltRemotes()
+
+	// Stop dashboard if we're managing it
+	if d.dashboard != nil && d.dashboard.IsEnabled() {
+		if err := d.dashboard.Stop(); err != nil {
+			d.logger.Printf("Warning: failed to stop dashboard: %v", err)
+		} else {
+			d.logger.Println("Dashboard stopped")
+		}
+	}
 
 	// Stop Dolt server if we're managing it
 	if d.doltServer != nil && d.doltServer.IsEnabled() && !d.doltServer.IsExternal() {

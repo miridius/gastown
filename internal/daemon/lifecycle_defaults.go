@@ -66,6 +66,7 @@ func DefaultLifecycleConfig() *DaemonPatrolConfig {
 			Handler: &PatrolConfig{
 				Enabled: true,
 			},
+			Dashboard: DefaultDashboardConfig(), // Disabled by default (opt-in)
 		},
 	}
 }
@@ -129,6 +130,10 @@ func EnsureLifecycleDefaults(config *DaemonPatrolConfig) bool {
 	}
 	if p.Deacon == nil {
 		p.Deacon = d.Deacon
+		changed = true
+	}
+	if p.Dashboard == nil {
+		p.Dashboard = d.Dashboard
 		changed = true
 	}
 

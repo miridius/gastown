@@ -1083,6 +1083,12 @@ func (g *Git) IsAncestor(ancestor, descendant string) (bool, error) {
 	return true, nil
 }
 
+// DiffStat returns the --stat output of git diff between two refs.
+// An empty result means the two refs have identical tree content.
+func (g *Git) DiffStat(ref1, ref2 string) (string, error) {
+	return g.run("diff", "--stat", ref1, ref2)
+}
+
 // WorktreeAdd creates a new worktree at the given path with a new branch.
 // The new branch is created from the current HEAD.
 // Skips LFS smudge filter during checkout (see WorktreeAddFromRef).

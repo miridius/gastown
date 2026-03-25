@@ -305,12 +305,15 @@ func TestManager_PostMerge_NotFound(t *testing.T) {
 	}
 }
 
-// mockGitClient implements the interface needed by VerifyMergeOnMain.
+// mockGitClient implements the interface needed by VerifyMergeOnMain,
+// including the optional DiffStat method for squash-merge fallback.
 type mockGitClient struct {
 	revResults      map[string]string
 	revErrors       map[string]error
 	ancestorResults map[string]bool
 	ancestorErrors  map[string]error
+	diffStatResults map[string]string // key: "ref1:ref2"
+	diffStatErrors  map[string]error
 }
 
 func (m *mockGitClient) Rev(ref string) (string, error) {
@@ -332,6 +335,17 @@ func (m *mockGitClient) IsAncestor(ancestor, descendant string) (bool, error) {
 		return result, nil
 	}
 	return false, nil
+}
+
+func (m *mockGitClient) DiffStat(ref1, ref2 string) (string, error) {
+	key := ref1 + ":" + ref2
+	if err, ok := m.diffStatErrors[key]; ok {
+		return "", err
+	}
+	if stat, ok := m.diffStatResults[key]; ok {
+		return stat, nil
+	}
+	return "", fmt.Errorf("no diff stat configured for %s", key)
 }
 
 func TestVerifyMergeOnMain_Success(t *testing.T) {
@@ -361,6 +375,9 @@ func TestVerifyMergeOnMain_NotMerged(t *testing.T) {
 		ancestorResults: map[string]bool{
 			"abc123def456:origin/main": false,
 		},
+		diffStatResults: map[string]string{
+			"origin/polecat/test/gt-abc:origin/main": " file.go | 3 +++\n 1 file changed\n",
+		},
 	}
 
 	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-abc", "origin/main")
@@ -386,5 +403,75 @@ func TestVerifyMergeOnMain_BranchNotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "resolving branch") {
 		t.Errorf("VerifyMergeOnMain() error = %q, want 'resolving branch' substring", err.Error())
+	}
+}
+
+func TestVerifyMergeOnMain_SquashMerge_EmptyDiff(t *testing.T) {
+	// Squash merge: branch is NOT an ancestor of main, but diff is empty
+	// (content was incorporated via squash commit)
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-squash": "48477e8\n",
+		},
+		ancestorResults: map[string]bool{
+			"48477e8:origin/main": false, // squash merge — not an ancestor
+		},
+		diffStatResults: map[string]string{
+			"origin/polecat/test/gt-squash:origin/main": "", // empty diff — content landed
+		},
+	}
+
+	sha, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-squash", "origin/main")
+	if err != nil {
+		t.Fatalf("VerifyMergeOnMain() unexpected error for squash merge: %v", err)
+	}
+	if sha != "48477e8" {
+		t.Errorf("VerifyMergeOnMain() SHA = %q, want %q", sha, "48477e8")
+	}
+}
+
+func TestVerifyMergeOnMain_SquashMerge_NonEmptyDiff(t *testing.T) {
+	// Branch is NOT an ancestor and diff is NOT empty — genuinely not merged
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-pending": "e0a0b29\n",
+		},
+		ancestorResults: map[string]bool{
+			"e0a0b29:origin/main": false,
+		},
+		diffStatResults: map[string]string{
+			"origin/polecat/test/gt-pending:origin/main": " internal/foo.go | 5 ++---\n 1 file changed\n",
+		},
+	}
+
+	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-pending", "origin/main")
+	if err == nil {
+		t.Fatal("VerifyMergeOnMain() expected error for unmerged branch with non-empty diff")
+	}
+	if !strings.Contains(err.Error(), "NOT reachable") {
+		t.Errorf("VerifyMergeOnMain() error = %q, want 'NOT reachable' substring", err.Error())
+	}
+}
+
+func TestVerifyMergeOnMain_SquashMerge_DiffStatError(t *testing.T) {
+	// DiffStat fails — should return an error, not silently pass or fail
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-err": "c397255\n",
+		},
+		ancestorResults: map[string]bool{
+			"c397255:origin/main": false,
+		},
+		diffStatErrors: map[string]error{
+			"origin/polecat/test/gt-err:origin/main": fmt.Errorf("git diff failed"),
+		},
+	}
+
+	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-err", "origin/main")
+	if err == nil {
+		t.Fatal("VerifyMergeOnMain() expected error when DiffStat fails")
+	}
+	if !strings.Contains(err.Error(), "squash-merge content") {
+		t.Errorf("VerifyMergeOnMain() error = %q, want 'squash-merge content' substring", err.Error())
 	}
 }

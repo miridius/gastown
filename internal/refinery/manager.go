@@ -650,6 +650,13 @@ func (m *Manager) notifyWorkerRejected(mr *MergeRequest, reason string) {
 // This MUST be called before PostMerge to prevent closing beads for code
 // that never actually landed on the target branch.
 //
+// For squash merges, the original branch commits are not ancestors of the
+// target because squash creates new commits with different SHAs. When
+// IsAncestor returns false, the function falls back to a content-based check:
+// if git diff --stat between the branch and target is empty, the branch
+// content was incorporated via squash merge. The gitClient may optionally
+// implement DiffStat(ref1, ref2 string) (string, error) for this fallback.
+//
 // The caller should fetch origin before calling this to ensure refs are current.
 func VerifyMergeOnMain(gitClient interface {
 	Rev(ref string) (string, error)
@@ -667,11 +674,28 @@ func VerifyMergeOnMain(gitClient interface {
 	if err != nil {
 		return "", fmt.Errorf("checking merge ancestry: %w", err)
 	}
-	if !isAncestor {
-		return "", fmt.Errorf("branch %s (commit %s) is NOT reachable from %s — merge did not land", branch, branchSHA, targetRef)
+	if isAncestor {
+		return branchSHA, nil
 	}
 
-	return branchSHA, nil
+	// Fallback: squash merges create new commits so the original branch SHA
+	// is never an ancestor of the target. Check if the content is identical
+	// (empty diff means the squash incorporated all branch changes).
+	type diffStatter interface {
+		DiffStat(ref1, ref2 string) (string, error)
+	}
+	if ds, ok := gitClient.(diffStatter); ok {
+		stat, diffErr := ds.DiffStat(branch, targetRef)
+		if diffErr != nil {
+			return "", fmt.Errorf("checking squash-merge content: %w", diffErr)
+		}
+		if strings.TrimSpace(stat) == "" {
+			// Empty diff: branch content is on the target (squash merge)
+			return branchSHA, nil
+		}
+	}
+
+	return "", fmt.Errorf("branch %s (commit %s) is NOT reachable from %s — merge did not land", branch, branchSHA, targetRef)
 }
 
 // Town root is computed in Start() as filepath.Dir(m.rig.Path) and passed

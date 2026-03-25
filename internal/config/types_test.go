@@ -581,4 +581,60 @@ func TestParseDurationOrDefault_AllWebTimeoutDefaults(t *testing.T) {
 	}
 }
 
+// --- IsReviewEnabled ---
 
+func TestRigSettings_IsReviewEnabled(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		settings *RigSettings
+		want     bool
+	}{
+		{"nil settings", nil, false},
+		{"nil review", &RigSettings{}, false},
+		{"review disabled", &RigSettings{Review: &ReviewConfig{Enabled: false}}, false},
+		{"review enabled", &RigSettings{Review: &ReviewConfig{Enabled: true}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.settings.IsReviewEnabled(); got != tt.want {
+				t.Errorf("IsReviewEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReviewConfig_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	// RigSettings with review enabled should round-trip through JSON.
+	original := &RigSettings{
+		Type:    "rig-settings",
+		Version: 1,
+		Review:  &ReviewConfig{Enabled: true},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded RigSettings
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !decoded.IsReviewEnabled() {
+		t.Error("expected IsReviewEnabled() == true after round-trip")
+	}
+
+	// RigSettings without review should unmarshal with nil Review.
+	noReview := &RigSettings{Type: "rig-settings", Version: 1}
+	data, _ = json.Marshal(noReview)
+	var decoded2 RigSettings
+	if err := json.Unmarshal(data, &decoded2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded2.Review != nil {
+		t.Error("expected Review == nil when omitted from JSON")
+	}
+	if decoded2.IsReviewEnabled() {
+		t.Error("expected IsReviewEnabled() == false when Review omitted")
+	}
+}

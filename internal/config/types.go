@@ -651,6 +651,26 @@ type RigSettings struct {
 	// Takes precedence over RoleAgents["crew"] but is overridden by explicit --agent flags.
 	// Example: {"denali": "codex", "glacier": "gemini"}
 	WorkerAgents map[string]string `json:"worker_agents,omitempty"`
+
+	// Review controls whether MRs in this rig require human review
+	// in meerkat before reaching the refinery merge queue.
+	Review *ReviewConfig `json:"review,omitempty"`
+}
+
+// ReviewConfig controls whether MRs in this rig require human review
+// in meerkat before reaching the refinery merge queue.
+type ReviewConfig struct {
+	// Enabled controls whether MRs get the meerkat:review label.
+	// When true, gt done adds "meerkat:review" alongside "gt:merge-request",
+	// and the refinery skips MRs bearing "meerkat:review".
+	// Default: false (existing no-review flow).
+	Enabled bool `json:"enabled"`
+}
+
+// IsReviewEnabled returns true if meerkat review is enabled for this rig.
+// Returns false if Review is nil or Enabled is false.
+func (s *RigSettings) IsReviewEnabled() bool {
+	return s != nil && s.Review != nil && s.Review.Enabled
 }
 
 // CrewConfig represents crew workspace settings for a rig.

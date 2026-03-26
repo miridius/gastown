@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -87,8 +88,11 @@ func (c *WispGCCheck) Run(ctx *CheckContext) *CheckResult {
 // countAbandonedWisps counts wisps older than the threshold in a rig.
 // Queries the wisps table via bd mol wisp list (Dolt server is required).
 func (c *WispGCCheck) countAbandonedWisps(rigPath string) int {
-	// Query wisps table via bd CLI
-	cmd := exec.Command("bd", "mol", "wisp", "list", "--json")
+	// Query wisps table via bd CLI — with timeout to prevent zombie processes (gt-4p2)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bd", "mol", "wisp", "list", "--json")
 	cmd.Dir = rigPath
 
 	output, err := cmd.Output()

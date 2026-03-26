@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gofrs/flock"
 
@@ -668,7 +669,11 @@ func mergeAgentBeadSources(issuesByID, wispsByID map[string]*Issue) map[string]*
 // ListAgentBeadsFromWisps queries the wisps table for agent beads.
 // Returns nil, nil if the wisps table doesn't exist yet or has no agent beads.
 func (b *Beads) ListAgentBeadsFromWisps() (map[string]*Issue, error) {
-	out, err := b.run("mol", "wisp", "list", "--json")
+	// Use timeout to prevent zombie processes when Dolt is slow (gt-4p2)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	out, err := b.runWithContext(ctx, "mol", "wisp", "list", "--json")
 	if err != nil {
 		return nil, nil // Wisps table may not exist yet
 	}
@@ -726,7 +731,11 @@ func isAgentBeadByID(id string) bool {
 // This is useful for existence checks where wisp metadata (type, labels)
 // may not be available in the list output.
 func (b *Beads) ListWispIDs() (map[string]bool, error) {
-	out, err := b.run("mol", "wisp", "list", "--json")
+	// Use timeout to prevent zombie processes when Dolt is slow (gt-4p2)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	out, err := b.runWithContext(ctx, "mol", "wisp", "list", "--json")
 	if err != nil {
 		return nil, nil
 	}

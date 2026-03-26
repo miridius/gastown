@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
@@ -383,7 +385,11 @@ func filterFormulaScaffolds(issues []*beads.Issue, formulaNames map[string]bool)
 // This is a defense-in-depth exclusion - bd ready should already filter wisps,
 // but we double-check at the display layer to ensure operational work doesn't leak.
 func getWispIDs(beadsPath string) map[string]bool {
-	cmd := exec.Command("bd", "mol", "wisp", "list", "--json")
+	// Timeout to prevent zombie processes when Dolt is slow (gt-4p2)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bd", "mol", "wisp", "list", "--json")
 	cmd.Dir = beadsPath
 	output, err := cmd.Output()
 	if err != nil {

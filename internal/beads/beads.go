@@ -455,6 +455,64 @@ func (b *Beads) run(args ...string) (_ []byte, retErr error) {
 	return stripStdoutWarnings(stdout.Bytes()), nil
 }
 
+// runWithContext is like run but accepts a context for timeout/cancellation.
+// Use this for subprocess calls that may hang (e.g., mol wisp list when Dolt is
+// slow) to prevent zombie process accumulation (gt-4p2).
+func (b *Beads) runWithContext(ctx context.Context, args ...string) (_ []byte, retErr error) {
+	start := time.Now()
+	var stdout, stderr bytes.Buffer
+	defer func() {
+		telemetry.RecordBDCall(ctx, args, float64(time.Since(start).Milliseconds()), retErr, stdout.Bytes(), stderr.String())
+	}()
+
+	args = InjectFlatForListJSON(args)
+
+	beadsDir := b.beadsDir
+	if beadsDir == "" {
+		beadsDir = ResolveBeadsDir(b.workDir)
+	}
+	runEnv := append(b.buildRunEnv(), "BEADS_DIR="+beadsDir)
+	fullArgs := MaybePrependAllowStaleWithEnv(runEnv, args)
+
+	cmd := exec.CommandContext(ctx, "bd", fullArgs...) //nolint:gosec // G204: bd is a trusted internal tool
+	cmd.Dir = b.workDir
+	cmd.Env = runEnv
+	cmd.Env = append(cmd.Env, telemetry.OTELEnvForSubprocess()...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	// Retry without --flat if unsupported
+	if err != nil && strings.Contains(stderr.String(), "unknown flag: --flat") {
+		retryArgs := make([]string, 0, len(fullArgs))
+		for _, a := range fullArgs {
+			if a != "--flat" {
+				retryArgs = append(retryArgs, a)
+			}
+		}
+		stdout.Reset()
+		stderr.Reset()
+		cmd = exec.CommandContext(ctx, "bd", retryArgs...) //nolint:gosec // G204: bd is a trusted internal tool
+		cmd.Dir = b.workDir
+		cmd.Env = runEnv
+		cmd.Env = append(cmd.Env, telemetry.OTELEnvForSubprocess()...)
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+	}
+
+	if err != nil {
+		return nil, b.wrapError(err, stderr.String(), args)
+	}
+
+	if stdout.Len() == 0 && stderr.Len() > 0 {
+		return nil, b.wrapError(fmt.Errorf("command produced no output"), stderr.String(), args)
+	}
+
+	return stripStdoutWarnings(stdout.Bytes()), nil
+}
+
 // runWithRouting executes a bd command without setting BEADS_DIR, allowing bd's
 // native prefix-based routing via routes.jsonl to resolve cross-prefix beads.
 // This is needed for slot operations that reference beads with different prefixes

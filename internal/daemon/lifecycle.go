@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -947,23 +948,44 @@ func identityToBDActor(identity string) string {
 // Defined in constants package — this alias avoids updating all call sites.
 const GUPPViolationTimeout = constants.GUPPViolationTimeout
 
+// bdSubprocessTimeout is the maximum time any single bd subprocess is allowed
+// to run before being killed. Prevents zombie process accumulation when Dolt
+// is slow or hung (see gt-4p2).
+const bdSubprocessTimeout = 15 * time.Second
+
 // listAgentBeadsJSON queries both the issues and wisps tables for agent beads
 // and unmarshals the combined results into the provided slice pointer.
 // The wisps query is best-effort (gracefully ignored if table doesn't exist).
+//
+// Subprocesses run serially with timeouts to prevent zombie accumulation
+// when Dolt is slow (gt-4p2).
 func (d *Daemon) listAgentBeadsJSON(dest interface{}) error {
-	// Query issues table (backward compat during migration)
-	cmd := exec.Command(d.bdPath, "list", "--label=gt:agent", "--json", "--flat") //nolint:gosec // G204: bd is a trusted internal tool
+	// Query issues table (backward compat during migration) — with timeout
+	issuesCtx, issuesCancel := context.WithTimeout(context.Background(), bdSubprocessTimeout)
+	defer issuesCancel()
+
+	cmd := exec.CommandContext(issuesCtx, d.bdPath, "list", "--label=gt:agent", "--json", "--flat") //nolint:gosec // G204: bd is a trusted internal tool
 	cmd.Dir = d.config.TownRoot
 	cmd.Env = os.Environ()
 
 	issuesOutput, issuesErr := cmd.Output()
+	if issuesCtx.Err() == context.DeadlineExceeded {
+		d.logger.Printf("Warning: bd list --label=gt:agent timed out after %v", bdSubprocessTimeout)
+	}
 
-	// Query wisps table (primary source after agent bead migration)
-	wispCmd := exec.Command(d.bdPath, "mol", "wisp", "list", "--json") //nolint:gosec // G204: bd is a trusted internal tool
+	// Query wisps table (primary source after agent bead migration) — with timeout
+	// Runs AFTER issues query completes (serial) to prevent concurrent Dolt connections.
+	wispCtx, wispCancel := context.WithTimeout(context.Background(), bdSubprocessTimeout)
+	defer wispCancel()
+
+	wispCmd := exec.CommandContext(wispCtx, d.bdPath, "mol", "wisp", "list", "--json") //nolint:gosec // G204: bd is a trusted internal tool
 	wispCmd.Dir = d.config.TownRoot
 	wispCmd.Env = os.Environ()
 
 	wispOutput, _ := wispCmd.Output() // Best-effort: wisps table may not exist
+	if wispCtx.Err() == context.DeadlineExceeded {
+		d.logger.Printf("Warning: bd mol wisp list timed out after %v", bdSubprocessTimeout)
+	}
 
 	// Merge results: parse wisps first, then issues (wisps take precedence)
 	combined := mergeAgentBeadJSON(wispOutput, issuesOutput)

@@ -651,6 +651,18 @@ type RigSettings struct {
 	// Takes precedence over RoleAgents["crew"] but is overridden by explicit --agent flags.
 	// Example: {"denali": "codex", "glacier": "gemini"}
 	WorkerAgents map[string]string `json:"worker_agents,omitempty"`
+
+	Review *ReviewConfig `json:"review,omitempty"` // meerkat review settings
+}
+
+// ReviewConfig controls whether a rig requires meerkat review before merge.
+type ReviewConfig struct {
+	Enabled bool `json:"enabled"` // require meerkat review before merge
+}
+
+// IsReviewEnabled returns true if this rig requires meerkat review.
+func (s *RigSettings) IsReviewEnabled() bool {
+	return s != nil && s.Review != nil && s.Review.Enabled
 }
 
 // CrewConfig represents crew workspace settings for a rig.

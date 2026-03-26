@@ -348,6 +348,7 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	var mrID string
 	var pushFailed bool
 	var mrFailed bool
+	var reviewEnabled bool
 	var doneErrors []string
 	var convoyInfo *ConvoyInfo // Populated if issue is tracked by a convoy
 	if exitType == ExitCompleted {
@@ -793,13 +794,18 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			style.PrintWarning("could not load source issue %s for target branch detection (Dolt/beads lookup failed) — using default branch %s", issueID, defaultBranch)
 		}
 
+		// Load rig settings for integration branch detection and review config.
+		settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
+		if rigSettings, err := config.LoadRigSettings(settingsPath); err == nil {
+			reviewEnabled = rigSettings.IsReviewEnabled()
+		}
+
 		// 3. Auto-detect integration branch from epic hierarchy (if enabled).
 		// Only overrides if no explicit target was set above.
 		if target == defaultBranch {
 			refineryEnabled := true
-			settingsPath := filepath.Join(townRoot, rigName, "settings", "config.json")
-			if settings, err := config.LoadRigSettings(settingsPath); err == nil && settings.MergeQueue != nil {
-				refineryEnabled = settings.MergeQueue.IsRefineryIntegrationEnabled()
+			if rigSettings, err := config.LoadRigSettings(settingsPath); err == nil && rigSettings.MergeQueue != nil {
+				refineryEnabled = rigSettings.MergeQueue.IsRefineryIntegrationEnabled()
 			}
 			if refineryEnabled {
 				autoTarget, err := beads.DetectIntegrationBranch(bd, g, issueID)
@@ -877,9 +883,14 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 				}
 			}
 
+			labels := []string{"gt:merge-request"}
+			if reviewEnabled {
+				labels = append(labels, "meerkat:review")
+			}
+
 			mrIssue, err := bd.Create(beads.CreateOptions{
 				Title:       title,
-				Labels:      []string{"gt:merge-request"},
+				Labels:      labels,
 				Priority:    priority,
 				Description: description,
 				Ephemeral:   true,
@@ -958,7 +969,11 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		}
 		fmt.Printf("  Priority: P%d\n", priority)
 		fmt.Println()
-		fmt.Printf("%s\n", style.Dim.Render("The Refinery will process your merge request."))
+		if reviewEnabled {
+			fmt.Printf("%s\n", style.Dim.Render("Submitted for review in meerkat. Refinery will process after approval."))
+		} else {
+			fmt.Printf("%s\n", style.Dim.Render("The Refinery will process your merge request."))
+		}
 	} else {
 		// For ESCALATED or DEFERRED, just print status
 		fmt.Printf("%s Signaling %s\n", style.Bold.Render("→"), exitType)
@@ -970,7 +985,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 notifyWitness:
 	// Nudge refinery — MR bead is already on main (transaction-based shared main).
-	if mrID != "" {
+	// Skip nudge when review is enabled — MR is parked for meerkat review first.
+	if mrID != "" && !reviewEnabled {
 		nudgeRefinery(rigName, "MERGE_READY received - check inbox for pending work")
 	}
 

@@ -20,10 +20,12 @@ coverage:
         threshold: 5%
 
     # Patch coverage (for new code in PRs)
+    # 80% target enforces high coverage on fork-local changes so upstream
+    # rebases stay clean and regressions are caught early.
     patch:
       default:
-        target: 60%
-        threshold: 10%
+        target: 80%
+        threshold: 5%
 
 # Component management for domain-based coverage views
 # Components are purely configuration-driven — no upload-time setup needed

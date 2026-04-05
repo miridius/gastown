@@ -1,4 +1,4 @@
-.PHONY: build desktop-build desktop-run install safe-install check-forward-only clean test test-e2e-container check-up-to-date docker-build docker-rebuild
+.PHONY: build desktop-build desktop-run install safe-install check-forward-only clean test test-coverage-gate test-e2e-container check-up-to-date docker-build docker-rebuild
 
 BINARY := gt
 BINARY_DESKTOP := gt-desktop
@@ -132,6 +132,12 @@ clean:
 
 test:
 	go test ./...
+
+# Check that fork-local changed files have ≥80% test coverage.
+# Requires upstream remote pointing at steveyegge/gastown.
+test-coverage-gate:
+	go test -short -timeout=10m -coverprofile=coverage.out ./...
+	bash scripts/coverage-gate.sh --skip-generate --threshold 80
 
 # Run e2e tests in isolated container (the only supported way to run them)
 test-e2e-container:

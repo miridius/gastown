@@ -474,6 +474,56 @@ func TestSchedulerSlingContextIdempotency(t *testing.T) {
 	}
 }
 
+// TestSchedulerSlingContextFormulaUpdate verifies that re-slinging with a
+// different --formula updates the existing sling context instead of no-op (gt-b6j).
+func TestSchedulerSlingContextFormulaUpdate(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Formula update test")
+
+	// First sling: default formula (--hook-raw-bead strips formula, so use explicit)
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig", "--formula", "mol-polecat-work")
+
+	// Second sling: different formula — should update, not no-op
+	output := slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig", "--formula", "shiny")
+
+	if strings.Contains(output, "no-op") {
+		t.Fatalf("expected formula update, got no-op: %s", output)
+	}
+	if !strings.Contains(output, "Updated scheduled context") {
+		t.Fatalf("expected 'Updated scheduled context' message, got: %s", output)
+	}
+
+	// Verify the sling context now has the new formula
+	townBeads := beads.NewWithBeadsDir(hqPath, filepath.Join(hqPath, ".beads"))
+	ctx, fields, err := townBeads.FindOpenSlingContext(beadID)
+	if err != nil {
+		t.Fatalf("FindOpenSlingContext failed: %v", err)
+	}
+	if ctx == nil {
+		t.Fatal("expected open sling context, got nil")
+	}
+	if fields.Formula != "shiny" {
+		t.Errorf("expected formula 'shiny', got %q", fields.Formula)
+	}
+}
+
+// TestSchedulerSlingContextSameFormulaNoOp verifies that re-slinging with the
+// same formula is still a no-op (preserves idempotency).
+func TestSchedulerSlingContextSameFormulaNoOp(t *testing.T) {
+	hqPath, rigPath, gtBinary, env := setupSchedulerIntegrationTown(t)
+
+	beadID := createTestBead(t, rigPath, "Same formula no-op test")
+
+	// Sling twice with same formula
+	slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig", "--formula", "mol-polecat-work")
+	output := slingToScheduler(t, gtBinary, hqPath, env, beadID, "testrig", "--formula", "mol-polecat-work")
+
+	if !strings.Contains(output, "no-op") {
+		t.Fatalf("expected no-op for same formula, got: %s", output)
+	}
+}
+
 // TestSchedulerSlingContextWorkBeadPristine verifies that scheduling a bead
 // does NOT modify the work bead's description or labels.
 func TestSchedulerSlingContextWorkBeadPristine(t *testing.T) {

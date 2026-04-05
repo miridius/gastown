@@ -3,6 +3,8 @@ package cmd
 import (
 	"os"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/scheduler/capacity"
 )
 
 // TestAreScheduledFailClosed verifies that areScheduled fails closed when
@@ -38,5 +40,59 @@ func TestAreScheduledEmptyInput(t *testing.T) {
 	result = areScheduled([]string{})
 	if len(result) != 0 {
 		t.Errorf("areScheduled([]) should return empty map, got %d entries", len(result))
+	}
+}
+
+// TestSlingContextNeedsUpdate verifies formula change detection (gt-b6j).
+func TestSlingContextNeedsUpdate(t *testing.T) {
+	existing := &capacity.SlingContextFields{
+		Formula: "mol-polecat-work",
+		Args:    "old args",
+	}
+
+	tests := []struct {
+		name string
+		opts ScheduleOptions
+		want bool
+	}{
+		{
+			name: "same formula is no-op",
+			opts: ScheduleOptions{Formula: "mol-polecat-work"},
+			want: false,
+		},
+		{
+			name: "different formula triggers update",
+			opts: ScheduleOptions{Formula: "shiny"},
+			want: true,
+		},
+		{
+			name: "empty formula is no-op",
+			opts: ScheduleOptions{},
+			want: false,
+		},
+		{
+			name: "different args triggers update",
+			opts: ScheduleOptions{Args: "new args"},
+			want: true,
+		},
+		{
+			name: "same args is no-op",
+			opts: ScheduleOptions{Args: "old args"},
+			want: false,
+		},
+		{
+			name: "different account triggers update",
+			opts: ScheduleOptions{Account: "work"},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := slingContextNeedsUpdate(existing, tt.opts)
+			if got != tt.want {
+				t.Errorf("slingContextNeedsUpdate() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

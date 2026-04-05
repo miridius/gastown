@@ -91,11 +91,46 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	// Idempotency: check for existing open sling context for this work bead.
 	// Fail fast on errors to avoid creating duplicate contexts on transient DB failures.
 	townBeads := beads.NewWithBeadsDir(townRoot, filepath.Join(townRoot, ".beads"))
-	existingCtx, _, findErr := townBeads.FindOpenSlingContext(beadID)
+	existingCtx, existingFields, findErr := townBeads.FindOpenSlingContext(beadID)
 	if findErr != nil {
 		return fmt.Errorf("checking for existing sling context: %w", findErr)
 	}
 	if existingCtx != nil {
+		// If the requested formula (or other key fields) differs from the existing
+		// context, update the context in place so --formula is not silently ignored
+		// (gt-b6j). Otherwise, true no-op.
+		if existingFields != nil && slingContextNeedsUpdate(existingFields, opts) {
+			existingFields.Formula = opts.Formula
+			if opts.Args != "" {
+				existingFields.Args = opts.Args
+			}
+			if len(opts.Vars) > 0 {
+				existingFields.Vars = strings.Join(opts.Vars, "\n")
+			}
+			if opts.Account != "" {
+				existingFields.Account = opts.Account
+			}
+			if opts.Agent != "" {
+				existingFields.Agent = opts.Agent
+			}
+			if opts.Merge != "" {
+				existingFields.Merge = opts.Merge
+			}
+			if opts.BaseBranch != "" {
+				existingFields.BaseBranch = opts.BaseBranch
+			}
+			existingFields.NoMerge = opts.NoMerge
+			existingFields.HookRawBead = opts.HookRawBead
+			if opts.Ralph {
+				existingFields.Mode = "ralph"
+			}
+			if err := townBeads.UpdateSlingContextFields(existingCtx.ID, existingFields); err != nil {
+				return fmt.Errorf("updating sling context %s: %w", existingCtx.ID, err)
+			}
+			fmt.Printf("%s Updated scheduled context %s (formula: %s)\n",
+				style.Bold.Render("✓"), existingCtx.ID, opts.Formula)
+			return nil
+		}
 		fmt.Printf("%s Bead %s is already scheduled (context: %s), no-op\n",
 			style.Dim.Render("○"), beadID, existingCtx.ID)
 		return nil
@@ -240,6 +275,26 @@ func runBatchSchedule(beadIDs []string, rigName, townRoot string) error {
 		return fmt.Errorf("all %d schedule attempts failed", len(beadIDs))
 	}
 	return nil
+}
+
+// slingContextNeedsUpdate returns true when an existing sling context has
+// different key parameters than the new schedule request. This allows
+// --formula (and other flags) to update a pending context instead of being
+// silently ignored (gt-b6j).
+func slingContextNeedsUpdate(existing *capacity.SlingContextFields, opts ScheduleOptions) bool {
+	if opts.Formula != "" && opts.Formula != existing.Formula {
+		return true
+	}
+	if opts.Args != "" && opts.Args != existing.Args {
+		return true
+	}
+	if opts.Account != "" && opts.Account != existing.Account {
+		return true
+	}
+	if opts.Agent != "" && opts.Agent != existing.Agent {
+		return true
+	}
+	return false
 }
 
 // resolveRigForBead determines the rig that owns a bead from its ID prefix.

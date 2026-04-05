@@ -116,14 +116,21 @@ func TestHeartbeat_IsFresh(t *testing.T) {
 			hb: &Heartbeat{
 				Timestamp: time.Now().Add(-3 * time.Minute),
 			},
-			expected: true, // Fresh is <5 minutes
+			expected: true, // Fresh is <10 minutes
 		},
 		{
 			name: "6 minutes old",
 			hb: &Heartbeat{
 				Timestamp: time.Now().Add(-6 * time.Minute),
 			},
-			expected: false, // Not fresh (>=5 minutes)
+			expected: true, // Fresh (<10 minutes)
+		},
+		{
+			name: "11 minutes old",
+			hb: &Heartbeat{
+				Timestamp: time.Now().Add(-11 * time.Minute),
+			},
+			expected: false, // Not fresh (>=10 minutes)
 		},
 	}
 
@@ -153,14 +160,21 @@ func TestHeartbeat_IsStale(t *testing.T) {
 			hb: &Heartbeat{
 				Timestamp: time.Now().Add(-3 * time.Minute),
 			},
-			expected: false, // Fresh (<5 minutes)
+			expected: false, // Fresh (<10 minutes)
 		},
 		{
 			name: "7 minutes old",
 			hb: &Heartbeat{
 				Timestamp: time.Now().Add(-7 * time.Minute),
 			},
-			expected: true, // Stale (5-15 minutes)
+			expected: false, // Fresh (<10 minutes)
+		},
+		{
+			name: "12 minutes old",
+			hb: &Heartbeat{
+				Timestamp: time.Now().Add(-12 * time.Minute),
+			},
+			expected: true, // Stale (10-15 minutes)
 		},
 		{
 			name: "16 minutes old",

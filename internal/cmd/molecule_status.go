@@ -429,7 +429,8 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 				enc.SetIndent("", "  ")
 				return enc.Encode(status)
 			}
-			return outputMoleculeStatus(status)
+			outputMoleculeStatus(status)
+			return nil
 		}
 		// Cache pointed to a bead that doesn't exist or can't be read —
 		// fall through to full Dolt lookup (cache may be stale).
@@ -581,7 +582,8 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Human-readable output
-	return outputMoleculeStatus(status)
+	outputMoleculeStatus(status)
+	return nil
 }
 
 // extractRoleFromIdentity extracts the role name from an agent identity string
@@ -760,7 +762,7 @@ func determineNextAction(status MoleculeStatusInfo) string {
 }
 
 // outputMoleculeStatus outputs human-readable status.
-func outputMoleculeStatus(status MoleculeStatusInfo) error {
+func outputMoleculeStatus(status MoleculeStatusInfo) {
 	// Header with hook icon
 	fmt.Printf("\n%s Hook Status: %s\n", style.Bold.Render("🪝"), status.Target)
 	if status.Role != "" && status.Role != "unknown" {
@@ -771,13 +773,13 @@ func outputMoleculeStatus(status MoleculeStatusInfo) error {
 	if !status.HasWork {
 		fmt.Printf("%s\n", style.Dim.Render("Nothing on hook - no work slung"))
 		fmt.Printf("\n%s %s\n", style.Bold.Render("Next:"), status.NextAction)
-		return nil
+		return
 	}
 
 	// Show hooked bead info
 	if status.PinnedBead == nil {
 		fmt.Printf("%s\n", style.Dim.Render("Work indicated but no bead found"))
-		return nil
+		return
 	}
 
 	// AUTONOMOUS MODE banner - hooked work triggers autonomous execution
@@ -789,7 +791,7 @@ func outputMoleculeStatus(status MoleculeStatusInfo) error {
 		fmt.Printf("%s Hooked bead %s is already closed!\n", style.Bold.Render("⚠"), status.PinnedBead.ID)
 		fmt.Printf("   Title: %s\n", status.PinnedBead.Title)
 		fmt.Printf("   This work was completed elsewhere. Clear your hook with: gt unsling\n")
-		return nil
+		return
 	}
 
 	// Check if this is a mail bead - display mail-specific format
@@ -801,7 +803,7 @@ func outputMoleculeStatus(status MoleculeStatusInfo) error {
 		}
 		fmt.Printf("   Subject: %s\n", status.PinnedBead.Title)
 		fmt.Printf("   Run: gt mail read %s\n", status.PinnedBead.ID)
-		return nil
+		return
 	}
 
 	fmt.Printf("%s %s: %s\n", style.Bold.Render("🪝 Hooked:"), status.PinnedBead.ID, status.PinnedBead.Title)
@@ -865,8 +867,6 @@ func outputMoleculeStatus(status MoleculeStatusInfo) error {
 	if status.NextAction != "" {
 		fmt.Printf("\n%s %s\n", style.Bold.Render("Next:"), status.NextAction)
 	}
-
-	return nil
 }
 
 // showGitDivergenceWarning fetches from origin and checks if the current branch

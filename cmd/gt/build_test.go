@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// TestCrossPlatformBuild verifies that the codebase compiles for all supported
-// platforms. This catches cases where platform-specific code (using build tags
-// like //go:build !windows) is called from platform-agnostic code without
-// providing stubs for all platforms.
+// TestCrossPlatformBuild verifies that the codebase compiles for supported
+// platforms. This fork is Linux-only (non-Linux platform code was removed
+// in commit f04b750b), so we only test Linux targets.
 func TestCrossPlatformBuild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping cross-platform build test in short mode")
@@ -18,8 +17,8 @@ func TestCrossPlatformBuild(t *testing.T) {
 
 	// Skip if not running on a platform that can cross-compile
 	// (need Go toolchain, not just running tests)
-	if os.Getenv("CI") == "" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skip("skipping cross-platform build test on unsupported platform")
+	if os.Getenv("CI") == "" && runtime.GOOS != "linux" {
+		t.Skip("skipping build test on non-Linux platform")
 	}
 
 	platforms := []struct {
@@ -29,10 +28,6 @@ func TestCrossPlatformBuild(t *testing.T) {
 	}{
 		{"linux", "amd64", "0"},
 		{"linux", "arm64", "0"},
-		{"darwin", "amd64", "0"},
-		{"darwin", "arm64", "0"},
-		{"windows", "amd64", "0"},
-		{"freebsd", "amd64", "0"},
 	}
 
 	for _, p := range platforms {

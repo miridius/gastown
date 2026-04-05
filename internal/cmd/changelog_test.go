@@ -181,15 +181,22 @@ func TestFormatPeriod(t *testing.T) {
 
 	arbitraryPast := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
 
+	// On Mondays, today == weekStart. "Week of ..." takes priority over
+	// "Today" because it's more informative for changelog headers.
+	todayWant := "Today"
+	if today.Equal(weekStart) {
+		todayWant = fmt.Sprintf("Week of %s", today.Format("Jan 02, 2006"))
+	}
+
 	tests := []struct {
 		name  string
 		since time.Time
 		want  string
 	}{
 		{
-			name:  "today returns 'Today'",
+			name:  "today returns 'Today' (or 'Week of ...' on Mondays)",
 			since: today,
-			want:  "Today",
+			want:  todayWant,
 		},
 		{
 			name:  "week start returns 'Week of ...'",
@@ -292,8 +299,13 @@ func TestFetchClosedBeads_FiltersInternalBeads(t *testing.T) {
 func writeFakeBD(t *testing.T, binDir, output string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
+		// Write JSON to a data file; use `type` to print it (echo can't handle multi-line JSON)
+		dataPath := filepath.Join(binDir, "bd_output.json")
+		if err := os.WriteFile(dataPath, []byte(output), 0644); err != nil {
+			t.Fatalf("write fake bd data: %v", err)
+		}
 		path := filepath.Join(binDir, "bd.cmd")
-		script := fmt.Sprintf("@echo off\necho %s\n", output)
+		script := fmt.Sprintf("@echo off\ntype \"%s\"\n", dataPath)
 		if err := os.WriteFile(path, []byte(script), 0644); err != nil {
 			t.Fatalf("write fake bd: %v", err)
 		}

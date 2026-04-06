@@ -1110,7 +1110,11 @@ If context is high (>80%), prepare for handoff:
 - Note any pending work
 - Write handoff to molecule state
 
-This enables the Deacon to burn and respawn cleanly."""
+This enables the Deacon to burn and respawn cleanly.
+
+Note: The session batch limit (20 cycles) is enforced by `gt patrol report` in Go code.
+You do not need to check cycle count here — `gt patrol report` will block new patrol
+creation when the limit is reached."""
 
 [[steps]]
 id = "loop-or-exit"
@@ -1170,5 +1174,12 @@ gt handoff -s "Deacon patrol handoff" -m "<observations>"
 ```
 2. Exit cleanly - the daemon will respawn a fresh Deacon session
 
-**IMPORTANT**: You must either report and loop (context LOW) or exit (context HIGH).
-Never leave the session idle without work on your hook."""
+**Session batch limit (enforced by Go code):**
+`gt patrol report` tracks how many cycles have run in this session. After 20 cycles,
+it prints SESSION_LIMIT_REACHED and skips spawning a new patrol. When you see this
+message, you MUST run `gt handoff` immediately — do NOT start another patrol cycle.
+The daemon will respawn a fresh session with a reset counter.
+
+**IMPORTANT**: You must either report and loop (context LOW) or exit (context HIGH)
+or hand off (session limit reached). Never leave the session idle without work on
+your hook."""

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/deacon"
 	"github.com/steveyegge/gastown/internal/formula"
 	"github.com/steveyegge/gastown/internal/style"
 )
@@ -121,6 +122,29 @@ func runPatrolReport(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("%s Closed patrol %s\n", style.Success.Render("✓"), patrolID)
+
+	// Enforce session batch limit for deacon role.
+	// After N cycles (default 20), the deacon must hand off to a fresh session
+	// to prevent context degradation and idle-at-prompt behavior (gt-t679).
+	if roleInfo.Role == RoleDeacon {
+		cycleCount, counterErr := deacon.IncrementPatrolCounter(roleInfo.TownRoot)
+		if counterErr != nil {
+			style.PrintWarning("could not update patrol counter: %v", counterErr)
+		}
+		maxCycles := deacon.DefaultMaxPatrolCycles
+		fmt.Printf("Session patrol cycle: %d/%d\n", cycleCount, maxCycles)
+
+		if cycleCount >= maxCycles {
+			fmt.Println()
+			fmt.Printf("%s SESSION_LIMIT_REACHED: %d patrol cycles completed in this session.\n",
+				style.Warning.Render("⚠"), cycleCount)
+			fmt.Println("You MUST hand off to a fresh session now:")
+			fmt.Println("  gt handoff -s \"Deacon patrol handoff\" -m \"Session batch limit reached after", cycleCount, "cycles\"")
+			fmt.Println()
+			fmt.Println("Do NOT start another patrol cycle. Run gt handoff immediately.")
+			return nil
+		}
+	}
 
 	// Start next cycle
 	newPatrolID, err := autoSpawnPatrol(cfg)

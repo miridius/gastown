@@ -99,6 +99,13 @@ func (m *Manager) Start(agentOverride string) error {
 		return fmt.Errorf("creating deacon directory: %w", err)
 	}
 
+	// Reset session patrol counter for the new session (gt-t679).
+	// Each session gets a fresh cycle budget (default 20 cycles).
+	if err := ResetPatrolCounter(m.townRoot); err != nil {
+		// Non-fatal: counter reset failure shouldn't block session start
+		_ = err
+	}
+
 	// Ensure runtime settings exist in deaconDir where session runs.
 	runtimeConfig := config.ResolveRoleAgentConfig("deacon", m.townRoot, deaconDir)
 	if err := runtime.EnsureSettingsForRole(deaconDir, deaconDir, "deacon", runtimeConfig); err != nil {

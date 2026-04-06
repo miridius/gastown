@@ -1,7 +1,7 @@
 description = "Engineer in a Box - the canonical right way. Design before you code. Review before you ship. Test before you submit."
 formula = "shiny"
 type = "workflow"
-version = 1
+version = 2
 
 [[steps]]
 acceptance = "Design doc committed covering approach, trade-offs, and files to change"
@@ -31,10 +31,64 @@ needs = ["review"]
 title = "Test {{feature}}"
 
 [[steps]]
+acceptance = "Feature/fix exercised empirically with documented evidence (command output, response, or log lines)"
+description = """
+Empirically verify that your work actually works — don't just trust that tests pass.
+
+**This step prevents the #1 quality failure: closing work that was never actually exercised.**
+
+**1. Identify what you built or fixed:**
+What is the observable behavior change? State it concretely:
+- "New endpoint /api/foo returns a JSON response"
+- "Bug where X happened is now gone"
+- "Config change causes Y behavior"
+
+**2. Exercise it — run it, trigger it, observe the output:**
+
+| Change type | How to verify |
+|-------------|---------------|
+| Bug fix | Reproduce the original bug scenario, show it no longer occurs |
+| New endpoint/API | curl it, show the response |
+| CLI command | Run it with representative args, show the output |
+| Config change | Show the new behavior is active (logs, output, state) |
+| UI change | Build and show rendered output or screenshot |
+| Library/internal change | Write a small driver or use an existing caller to demonstrate |
+| Refactor | Show before/after behavior is identical on a representative case |
+
+**3. Document the evidence:**
+Capture the actual command and its output. This evidence will be included in
+the MR description so reviewers can see the feature was verified.
+
+Example:
+```
+## Verification
+$ curl -s localhost:8080/api/health | jq .
+{"status": "ok", "version": "1.2.3"}
+
+$ gt sync --dry-run
+Synced 3 forks (0 errors)
+```
+
+**4. If verification fails:**
+- Do NOT proceed to submit
+- Fix the issue, re-run tests, and re-verify
+- If you cannot make it work, reopen the issue and document what failed:
+  ```bash
+  bd update <issue> --notes "Verification failed: <what happened>"
+  ```
+
+**If the change genuinely cannot be exercised** (e.g., pure documentation,
+comment-only changes, or dependency bumps with no observable behavior change),
+document WHY empirical verification is not applicable and proceed."""
+id = "verify"
+needs = ["test"]
+title = "Verify {{feature}}"
+
+[[steps]]
 acceptance = "Clean git status, clear commit message, code pushed to feature branch"
 description = "Submit for merge. Final check: git status, git diff. Commit with clear message. Follow your role's git workflow for landing code."
 id = "submit"
-needs = ["test"]
+needs = ["verify"]
 title = "Submit for merge"
 
 [vars]

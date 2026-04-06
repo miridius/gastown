@@ -52,7 +52,7 @@ stale, the refinery falls through to normal gate execution.
 | Context filling | Use gt handoff to cycle to fresh session |
 | Unsure what to do | Mail Witness, don't guess |"""
 formula = "mol-polecat-work"
-version = 10
+version = 11
 
 [[steps]]
 id = "load-context"
@@ -409,9 +409,72 @@ If lint_command is set:
 **Exit criteria:** Code compiles. Obvious regressions caught. Ready to submit."""
 
 [[steps]]
+id = "empirical-verify"
+title = "Empirical verification"
+needs = ["build-check"]
+description = """
+Empirically verify that your work actually works — don't just trust that tests pass.
+
+**This step prevents the #1 quality failure: closing work that was never actually exercised.**
+
+Tests prove code correctness in isolation. This step proves the feature works
+end-to-end in a realistic scenario. Both are required.
+
+**1. Identify what you built or fixed:**
+What is the observable behavior change? State it concretely:
+- "New endpoint /api/foo returns a JSON response"
+- "Bug where X happened is now gone"
+- "Config change causes Y behavior"
+
+**2. Exercise it — run it, trigger it, observe the output:**
+
+| Change type | How to verify |
+|-------------|---------------|
+| Bug fix | Reproduce the original bug scenario, show it no longer occurs |
+| New endpoint/API | curl it, show the response |
+| CLI command | Run it with representative args, show the output |
+| Config change | Show the new behavior is active (logs, output, state) |
+| UI change | Build and show rendered output or screenshot |
+| Library/internal change | Write a small driver or use an existing caller to demonstrate |
+| Refactor | Show before/after behavior is identical on a representative case |
+
+**3. Document the evidence:**
+Capture the actual command and its output. This will be included in the MR
+description so reviewers (and the Refinery) can see the feature was verified.
+
+```bash
+# Persist verification evidence to the bead:
+bd update {{issue}} --notes "Verification evidence:
+$ <command you ran>
+<output you observed>
+
+Conclusion: <feature/fix> confirmed working."
+```
+
+**4. If verification fails:**
+- Do NOT proceed to submit
+- Fix the issue and loop back to implement
+- If you cannot make it work, escalate:
+  ```bash
+  bd update {{issue}} --notes "Verification FAILED: <what happened>"
+  gt escalate "Cannot verify {{issue}}" -s HIGH -m "What failed: ..."
+  ```
+
+**For report-only tasks** (audits, reviews, research — no code changes):
+Verify your findings are persisted to the bead and are complete/accurate.
+Re-read your persisted notes and confirm they answer the original question.
+
+**If the change genuinely cannot be exercised** (pure documentation,
+comment-only, dependency bumps with no observable behavior change):
+Document WHY empirical verification is not applicable and proceed.
+
+**Exit criteria (HARD GATE):** Feature/fix exercised with documented evidence,
+OR explicit justification for why empirical verification is not applicable."""
+
+[[steps]]
 id = "pre-verify"
 title = "Pre-merge rebase verification"
-needs = ["build-check"]
+needs = ["empirical-verify"]
 description = """
 Rebase onto the target branch and run the full gate suite. This enables the
 refinery to fast-path merge your MR without re-running gates (~5s merge

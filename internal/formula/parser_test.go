@@ -556,6 +556,7 @@ func TestResolve_ShinyEnterprise(t *testing.T) {
 		"implement.refine-4",
 		"review",
 		"test",
+		"verify",
 		"submit",
 	}
 
@@ -605,8 +606,8 @@ func TestResolve_ShinySecure(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	// shiny-secure has no expand rules; it should produce the same 5 steps as shiny.
-	wantIDs := []string{"design", "implement", "review", "test", "submit"}
+	// shiny-secure has no expand rules; it should produce the same 6 steps as shiny.
+	wantIDs := []string{"design", "implement", "review", "test", "verify", "submit"}
 	if len(resolved.Steps) != len(wantIDs) {
 		t.Fatalf("got %d steps, want %d: %v", len(resolved.Steps), len(wantIDs), stepIDs(resolved))
 	}

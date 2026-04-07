@@ -11,6 +11,7 @@ import (
 	"github.com/steveyegge/gastown/internal/deacon"
 	"github.com/steveyegge/gastown/internal/formula"
 	"github.com/steveyegge/gastown/internal/style"
+	"github.com/steveyegge/gastown/internal/tmux"
 )
 
 var (
@@ -158,7 +159,39 @@ func runPatrolReport(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("%s Started new patrol: %s\n", style.Success.Render("✓"), newPatrolID)
+
+	// Self-nudge: wake the agent to pick up the new patrol cycle.
+	// Without this, the agent sits idle at prompt until externally nudged (gt-af34).
+	selfNudgePatrolLoop(newPatrolID)
+
 	return nil
+}
+
+// selfNudgePatrolLoop sends a nudge to the current session to continue
+// the patrol loop after a new patrol has been spawned. This prevents
+// the agent from sitting idle at prompt between patrol cycles (gt-af34).
+// Errors are logged but do not block patrol report completion.
+func selfNudgePatrolLoop(newPatrolID string) {
+	// Skip during tests
+	if os.Getenv("GT_TEST_NO_NUDGE") != "" {
+		return
+	}
+
+	sessionName, err := getCurrentTmuxSession()
+	if err != nil {
+		style.PrintWarning("self-nudge: could not resolve session: %v", err)
+		return
+	}
+
+	msg := fmt.Sprintf(
+		"New patrol %s hooked. Continue patrol loop — run `gt prime --hook` and execute from step 1.",
+		newPatrolID,
+	)
+
+	t := tmux.NewTmux()
+	if err := t.NudgeSession(sessionName, msg); err != nil {
+		style.PrintWarning("self-nudge: %v", err)
+	}
 }
 
 // buildStepAudit builds a step checklist from the formula's steps and the

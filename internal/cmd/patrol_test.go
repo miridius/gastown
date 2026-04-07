@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -235,4 +236,13 @@ func TestBuildStepAudit(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSelfNudgePatrolLoop_SkippedInTests(t *testing.T) {
+	// Verify selfNudgePatrolLoop is a no-op when GT_TEST_NO_NUDGE is set.
+	os.Setenv("GT_TEST_NO_NUDGE", "1")
+	defer os.Unsetenv("GT_TEST_NO_NUDGE")
+
+	// Should not panic or attempt tmux operations
+	selfNudgePatrolLoop("gt-wisp-test123")
 }

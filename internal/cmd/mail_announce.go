@@ -25,9 +25,9 @@ func runMailAnnounces(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a Gas Town workspace: %w", err)
 	}
 
-	// Load messaging config
+	// Load messaging config (returns empty defaults if file doesn't exist)
 	configPath := config.MessagingConfigPath(townRoot)
-	cfg, err := config.LoadMessagingConfig(configPath)
+	cfg, err := config.LoadOrCreateMessagingConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("loading messaging config: %w", err)
 	}

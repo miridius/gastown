@@ -130,7 +130,7 @@ func expandFromConfig[T any](r *Router, name string, getter func(*config.Messagi
 	}
 
 	configPath := config.MessagingConfigPath(r.townRoot)
-	cfg, err := config.LoadMessagingConfig(configPath)
+	cfg, err := config.LoadOrCreateMessagingConfig(configPath)
 	if err != nil {
 		return zero, fmt.Errorf("loading messaging config: %w", err)
 	}

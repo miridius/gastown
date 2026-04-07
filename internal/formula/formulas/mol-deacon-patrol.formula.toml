@@ -626,7 +626,14 @@ gt mail send mayor/ -s "Health: <rig> <component> unresponsive" \\
       Error signals: <details>"
 ```
 
-Reset unresponsive_cycles to 0 when component responds normally."""
+Reset unresponsive_cycles to 0 when component responds normally.
+
+**Known False Positives — Do NOT Escalate:**
+
+- `/gt/config/messaging.json` not existing is NORMAL. This file is optional —
+  it configures mailing lists, queues, and announce channels. Mail send/inbox
+  works perfectly without it. Do NOT escalate about missing messaging.json.
+  Its absence does NOT mean mail infrastructure is broken."""
 
 [[steps]]
 id = "dolt-health"

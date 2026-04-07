@@ -634,9 +634,9 @@ func runNudgeChannel(channelName, message, sender string) error {
 		return fmt.Errorf("cannot find town root: %w", err)
 	}
 
-	// Load messaging config
+	// Load messaging config (returns empty defaults if file doesn't exist)
 	msgConfigPath := config.MessagingConfigPath(townRoot)
-	msgConfig, err := config.LoadMessagingConfig(msgConfigPath)
+	msgConfig, err := config.LoadOrCreateMessagingConfig(msgConfigPath)
 	if err != nil {
 		return fmt.Errorf("loading messaging config: %w", err)
 	}

@@ -32,6 +32,15 @@
             "command": "{{GT_BIN}} tap guard pr-workflow"
           }
         ]
+      },
+      {
+        "matcher": "Bash(gt done*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && gt tap guard verify-before-done"
+          }
+        ]
       }
     ],
     "SessionStart": [

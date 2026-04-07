@@ -1,0 +1,23 @@
+## Verification
+
+$ go build ./...
+(success, exit 0)
+
+$ go test ./internal/cmd/... -run "TestCheckEvidence|TestVerifyBeforeDone" -v
+=== RUN   TestCheckEvidenceAt/no_file        --- PASS
+=== RUN   TestCheckEvidenceAt/empty_file     --- PASS
+=== RUN   TestCheckEvidenceAt/non-empty_file --- PASS
+=== RUN   TestVerifyBeforeDone_BypassCommands/plain_gt_done     --- PASS
+=== RUN   TestVerifyBeforeDone_BypassCommands/cleanup-status    --- PASS
+=== RUN   TestVerifyBeforeDone_BypassCommands/escalated         --- PASS
+=== RUN   TestVerifyBeforeDone_BypassCommands/escalated_space   --- PASS
+=== RUN   TestVerifyBeforeDone_BypassCommands/normal_status     --- PASS
+
+$ go test ./... (all pass except pre-existing TestCrossPlatformBuild failures)
+
+Integration tests (built binary):
+- Non-polecat context → exit 0 (allowed)
+- Polecat, no evidence → exit 2 (blocked with clear error)
+- Polecat, --cleanup-status → exit 0 (bypass works)
+- Polecat, --status=ESCALATED → exit 0 (bypass works)
+- Polecat, with evidence file → exit 0 (evidence detected)

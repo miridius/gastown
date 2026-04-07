@@ -95,6 +95,15 @@
             "command": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && gt tap guard dangerous-command"
           }
         ]
+      },
+      {
+        "matcher": "Bash(gt done*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && gt tap guard verify-before-done"
+          }
+        ]
       }
     ],
     "SessionStart": [

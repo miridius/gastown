@@ -14,9 +14,6 @@ set -euo pipefail
 WINDOW_HOURS=24
 DRY_RUN=false
 
-SCORE_OK_THRESHOLD="0.60"
-SCORE_WARN_THRESHOLD="0.45"
-
 # --- Argument parsing ---------------------------------------------------------
 
 while [[ $# -gt 0 ]]; do

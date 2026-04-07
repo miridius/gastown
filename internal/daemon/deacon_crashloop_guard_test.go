@@ -107,3 +107,57 @@ func TestCheckDeaconHeartbeat_RespectsCrashLoopGuard(t *testing.T) {
 		t.Fatalf("kill-session count = %d, want 0 while crash-loop guard is active", kills)
 	}
 }
+
+// gt-4j9s: verify that a very-stale heartbeat actually kills the session
+// when no crash-loop guard is active.
+func TestCheckDeaconHeartbeat_KillsVeryStaleSession(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on Windows — fake tmux requires bash")
+	}
+	townRoot := t.TempDir()
+	fakeBinDir := t.TempDir()
+	tmuxLog := filepath.Join(t.TempDir(), "tmux.log")
+	if err := os.WriteFile(tmuxLog, []byte{}, 0o644); err != nil {
+		t.Fatalf("create tmux log: %v", err)
+	}
+
+	writeFakeTmuxCrashLoop(t, fakeBinDir)
+	t.Setenv("PATH", fakeBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX_LOG", tmuxLog)
+
+	// Write a very stale heartbeat (25 min old — past the 20m threshold).
+	if err := deacon.WriteHeartbeat(townRoot, &deacon.Heartbeat{
+		Timestamp: time.Now().Add(-25 * time.Minute),
+		Cycle:     1,
+	}); err != nil {
+		t.Fatalf("write heartbeat: %v", err)
+	}
+
+	// No crash-loop guard — restarts should proceed normally.
+	rt := NewRestartTracker(townRoot, RestartTrackerConfig{})
+
+	d := &Daemon{
+		config:         &Config{TownRoot: townRoot},
+		logger:         log.New(io.Discard, "", 0),
+		tmux:           tmux.NewTmux(),
+		restartTracker: rt,
+		metrics:        &daemonMetrics{},
+	}
+
+	d.checkDeaconHeartbeat()
+
+	data, err := os.ReadFile(tmuxLog)
+	if err != nil {
+		t.Fatalf("read tmux log: %v", err)
+	}
+
+	kills := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.HasPrefix(line, "kill-session ") {
+			kills++
+		}
+	}
+	if kills == 0 {
+		t.Fatal("expected kill-session for very stale heartbeat, got 0 kills")
+	}
+}

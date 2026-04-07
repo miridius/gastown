@@ -1436,8 +1436,23 @@ func (d *Daemon) checkDeaconHeartbeat() {
 	// Kill threshold must be > backoff-max (15m) to avoid false positive
 	// kills during legitimate await-signal sleep.
 	if hb.IsVeryStale() {
-		// Detection only: stuck-agent-dog plugin handles context-aware restart
-		d.logger.Printf("STUCK DEACON: heartbeat stale for %s, session %s needs restart", age.Round(time.Minute), sessionName)
+		// gt-4j9s: Kill stuck session so ensureDeaconRunning restarts it on
+		// the next daemon tick. The crash-loop guard at the top of this
+		// function prevents restart storms.
+		d.logger.Printf("STUCK DEACON: heartbeat stale for %s, killing session %s for restart", age.Round(time.Minute), sessionName)
+		if err := d.tmux.KillSessionWithProcesses(sessionName); err != nil {
+			d.logger.Printf("Error killing stuck Deacon session: %v", err)
+		} else {
+			// Record restart so backoff tracker can detect crash loops.
+			if d.restartTracker != nil {
+				d.restartTracker.RecordRestart("deacon")
+				if err := d.restartTracker.Save(); err != nil {
+					d.logger.Printf("Warning: failed to save restart state: %v", err)
+				}
+			}
+			d.metrics.recordRestart(d.ctx, "deacon")
+			telemetry.RecordDaemonRestart(d.ctx, "deacon")
+		}
 	} else {
 		// Stale but not very stale (5-20 min) - nudge to wake up
 		d.logger.Printf("Deacon stuck for %s - nudging session", age.Round(time.Minute))

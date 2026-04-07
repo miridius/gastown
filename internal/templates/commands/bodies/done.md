@@ -34,9 +34,17 @@ gt done $ARGUMENTS
 - `gt done --status DEFERRED` — Pause work, skip MR
 
 **If the bead has nothing to implement** (already fixed, can't reproduce):
+
+⚠️ You MUST empirically verify before closing — "looks correct" is not proof.
+
 ```bash
-bd close <issue-id> --reason="no-changes: <brief explanation>"
-gt done
+# 1. Exercise the feature/bug scenario and confirm it works
+# 2. Document evidence:
+bd update <issue-id> --notes "Verified: <what you did and observed>"
+# 3. Close with evidence:
+bd close <issue-id> --reason="no-changes: verified — <explanation>"
+# 4. Done:
+gt done --empirically-verified --cleanup-status clean
 ```
 
 This command pushes your branch, submits an MR to the merge queue, and transitions

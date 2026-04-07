@@ -79,7 +79,14 @@ Synced 3 forks (0 errors)
 
 **If the change genuinely cannot be exercised** (e.g., pure documentation,
 comment-only changes, or dependency bumps with no observable behavior change),
-document WHY empirical verification is not applicable and proceed."""
+document WHY empirical verification is not applicable and proceed.
+
+**If you concluded 'no changes needed'** (bug already fixed, can't reproduce):
+This step STILL applies. You must exercise the scenario to PROVE it works.
+If verification confirms it works: `bd update <issue> --notes "Verified: <evidence>"`
+then close with `bd close <issue> --reason="no-changes: verified — <evidence>"`
+and `gt done --empirically-verified --cleanup-status clean`.
+If verification FAILS: do NOT close — implement the fix instead."""
 id = "verify"
 needs = ["test"]
 title = "Verify {{feature}}"

@@ -109,10 +109,18 @@ gt done                  # Submit and self-clean
 **If NO work on hook and NO mail:** run `gt done` immediately.
 
 **If your assigned bead has nothing to implement** (already done, can't reproduce, not applicable):
-```bash
-bd close <id> --reason="no-changes: <brief explanation>"
-gt done
-```
+
+⚠️ **You MUST still empirically verify.** "The code looks correct" is NOT proof.
+
+1. **Exercise** the feature/bug scenario (run it, curl it, trigger it, observe the output)
+2. **Confirm** the expected behavior works — if the bug was "already fixed," prove it
+3. **Document** evidence: `bd update <id> --notes "Verified: <what you did and saw>"`
+4. **Close**: `bd close <id> --reason="no-changes: verified — <explanation>"`
+5. **Done**: `gt done --empirically-verified --cleanup-status clean`
+
+If verification FAILS (the bug still exists, the feature doesn't work): **do NOT close.**
+Implement the fix instead.
+
 **DO NOT** exit without closing the bead. Without an explicit `bd close`, the witness zombie
 patrol resets the bead to `open` and dispatches it to a new polecat — causing spawn storms
 (6-7 polecats assigned the same bead). Every session must end with either a branch push via

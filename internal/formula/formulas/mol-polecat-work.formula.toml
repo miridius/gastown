@@ -468,6 +468,13 @@ Re-read your persisted notes and confirm they answer the original question.
 comment-only, dependency bumps with no observable behavior change):
 Document WHY empirical verification is not applicable and proceed.
 
+**If you concluded 'no changes needed'** (bug already fixed, can't reproduce):
+This step STILL applies. You must exercise the scenario to PROVE it works.
+If verification confirms it works: `bd update <issue> --notes "Verified: <evidence>"`
+then close with `bd close <issue> --reason="no-changes: verified — <evidence>"`
+and `gt done --empirically-verified --cleanup-status clean`.
+If verification FAILS: do NOT close — implement the fix instead.
+
 **Exit criteria (HARD GATE):** Feature/fix exercised with documented evidence,
 OR explicit justification for why empirical verification is not applicable."""
 

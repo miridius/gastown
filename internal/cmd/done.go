@@ -48,6 +48,7 @@ Exit statuses:
 Examples:
   gt done                              # Submit branch, notify COMPLETED, transition to IDLE
   gt done --pre-verified               # Submit with pre-verification fast-path
+  gt done --empirically-verified --cleanup-status clean  # No code changes, verified working
   gt done --target feat/my-branch      # Explicit MR target branch
   gt done --pre-verified --target feat/contract-review  # Pre-verified with explicit target
   gt done --issue gt-abc               # Explicit issue ID
@@ -58,13 +59,14 @@ Examples:
 }
 
 var (
-	doneIssue         string
-	donePriority      int
-	doneStatus        string
-	doneCleanupStatus string
-	doneResume        bool
-	donePreVerified   bool
-	doneTarget        string
+	doneIssue               string
+	donePriority            int
+	doneStatus              string
+	doneCleanupStatus       string
+	doneResume              bool
+	donePreVerified         bool
+	doneEmpiricallyVerified bool
+	doneTarget              string
 )
 
 // Valid exit types for gt done
@@ -81,6 +83,7 @@ func init() {
 	doneCmd.Flags().StringVar(&doneCleanupStatus, "cleanup-status", "", "Git cleanup status: clean, uncommitted, unpushed, stash, unknown (ZFC: agent-observed)")
 	doneCmd.Flags().BoolVar(&doneResume, "resume", false, "Resume from last checkpoint (auto-detected, for Witness recovery)")
 	doneCmd.Flags().BoolVar(&donePreVerified, "pre-verified", false, "Mark MR as pre-verified (polecat ran gates after rebasing onto target)")
+	doneCmd.Flags().BoolVar(&doneEmpiricallyVerified, "empirically-verified", false, "Confirm feature/fix was empirically exercised (required for no-changes completions)")
 	doneCmd.Flags().StringVar(&doneTarget, "target", "", "Explicit MR target branch (overrides formula_vars and auto-detection)")
 
 	rootCmd.AddCommand(doneCmd)
@@ -425,8 +428,25 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					originDefault)
 			}
 
-			// Non-polecat (crew/mayor), polecat with --cleanup-status=clean
-			// (report-only tasks like audits/reviews), or no_merge polecat
+			// Empirical verification gate (gt-char): polecats completing with no
+			// code changes MUST empirically verify the feature/bug works before
+			// closing. This prevents the failure mode where a polecat claims
+			// "already fixed" without testing, and the bug remains unfixed.
+			// The --empirically-verified flag is documented in the polecat CLAUDE.md
+			// template. IMPORTANT: The error message must NOT mention the flag name
+			// — LLM agents read error messages and self-bypass.
+			if os.Getenv("GT_POLECAT") != "" && !doneEmpiricallyVerified && !isNoMergeTask {
+				return fmt.Errorf("cannot complete with no code changes without empirical verification\n"+
+					"Before closing, you MUST:\n"+
+					"  1. Exercise the feature/bug scenario (run it, trigger it, observe output)\n"+
+					"  2. Confirm the expected behavior is working\n"+
+					"  3. Document evidence: bd update %s --notes \"Verified: <what you did and saw>\"\n"+
+					"'The code looks correct' is NOT proof. See your formula checklist.",
+					issueID)
+			}
+
+			// Non-polecat (crew/mayor), polecat with --empirically-verified
+			// (confirmed feature works), or no_merge polecat
 			// (non-code tasks like email/research per GH#2496):
 			// zero commits is valid.
 			fmt.Printf("%s Branch has no commits ahead of %s\n", style.Bold.Render("→"), originDefault)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/rig"
+	"github.com/steveyegge/gastown/internal/util"
 )
 
 // gateOrder defines the canonical execution order for gates.
@@ -141,7 +142,7 @@ func loadRigGateConfig(rigPath string) (*rigGateConfig, error) {
 // runMainBranchTests runs quality gates on each rig's main branch.
 // It fetches the latest main, runs configured gates/tests, and escalates failures.
 func (d *Daemon) runMainBranchTests() {
-	if !IsPatrolEnabled(d.patrolConfig, "main_branch_test") {
+	if !d.isPatrolActive("main_branch_test") {
 		return
 	}
 
@@ -216,6 +217,7 @@ func (d *Daemon) testRigMainBranch(rigName, rigPath string, timeout time.Duratio
 	if _, err := os.Stat(worktreePath); err == nil {
 		cleanupCmd := exec.Command("git", "worktree", "remove", "--force", worktreePath)
 		cleanupCmd.Dir = bareRepoPath
+		util.SetDetachedProcessGroup(cleanupCmd)
 		_ = cleanupCmd.Run()
 	}
 
@@ -225,6 +227,7 @@ func (d *Daemon) testRigMainBranch(rigName, rigPath string, timeout time.Duratio
 	// Fetch latest main
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", defaultBranch)
 	fetchCmd.Dir = bareRepoPath
+	util.SetDetachedProcessGroup(fetchCmd)
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git fetch failed: %v (%s)", err, strings.TrimSpace(string(output)))
 	}
@@ -232,6 +235,7 @@ func (d *Daemon) testRigMainBranch(rigName, rigPath string, timeout time.Duratio
 	// Create temporary worktree at origin/<default_branch>
 	addCmd := exec.CommandContext(ctx, "git", "worktree", "add", "--detach", worktreePath, "origin/"+defaultBranch)
 	addCmd.Dir = bareRepoPath
+	util.SetDetachedProcessGroup(addCmd)
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree add failed: %v (%s)", err, strings.TrimSpace(string(output)))
 	}
@@ -240,6 +244,7 @@ func (d *Daemon) testRigMainBranch(rigName, rigPath string, timeout time.Duratio
 	defer func() {
 		removeCmd := exec.Command("git", "worktree", "remove", "--force", worktreePath)
 		removeCmd.Dir = bareRepoPath
+		util.SetDetachedProcessGroup(removeCmd)
 		if err := removeCmd.Run(); err != nil {
 			d.logger.Printf("main_branch_test: %s: warning: worktree cleanup failed: %v", rigName, err)
 		}
@@ -303,6 +308,7 @@ func (d *Daemon) runCommandOnWorktree(ctx context.Context, rigName, workDir, lab
 	cmd := exec.CommandContext(ctx, "sh", "-c", command) //nolint:gosec // G204: command is from trusted rig config
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(), "CI=true") // Signal test environment
+	util.SetDetachedProcessGroup(cmd)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

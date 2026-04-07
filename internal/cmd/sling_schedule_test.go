@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/scheduler/capacity"
+	"github.com/steveyegge/gastown/internal/wisp"
 )
 
 // TestAreScheduledFailClosed verifies that areScheduled fails closed when
@@ -95,4 +97,79 @@ func TestSlingContextNeedsUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestResolveFormula verifies formula resolution precedence:
+// explicit flag > wisp layer > bead layer > system default > settings file > hardcoded fallback.
+func TestResolveFormula(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit flag wins", func(t *testing.T) {
+		t.Parallel()
+		got := resolveFormula("mol-evolve", false, "/tmp/nonexistent", "myrig")
+		if got != "mol-evolve" {
+			t.Errorf("got %q, want %q", got, "mol-evolve")
+		}
+	})
+
+	t.Run("hookRawBead returns empty", func(t *testing.T) {
+		t.Parallel()
+		got := resolveFormula("mol-evolve", true, "/tmp/nonexistent", "myrig")
+		if got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("system default mol-polecat-work", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		rigName := "testrig"
+		_ = os.MkdirAll(filepath.Join(tmpDir, rigName), 0o755)
+		got := resolveFormula("", false, tmpDir, rigName)
+		if got != "mol-polecat-work" {
+			t.Errorf("got %q, want %q", got, "mol-polecat-work")
+		}
+	})
+
+	t.Run("wisp layer overrides system default", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		rigName := "testrig"
+		_ = os.MkdirAll(filepath.Join(tmpDir, rigName), 0o755)
+
+		wispCfg := wisp.NewConfig(tmpDir, rigName)
+		if err := wispCfg.Set("default_formula", "mol-evolve"); err != nil {
+			t.Fatalf("wisp set: %v", err)
+		}
+
+		got := resolveFormula("", false, tmpDir, rigName)
+		if got != "mol-evolve" {
+			t.Errorf("got %q, want %q", got, "mol-evolve")
+		}
+	})
+
+	t.Run("explicit flag overrides wisp layer", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		rigName := "testrig"
+		_ = os.MkdirAll(filepath.Join(tmpDir, rigName), 0o755)
+
+		wispCfg := wisp.NewConfig(tmpDir, rigName)
+		if err := wispCfg.Set("default_formula", "mol-evolve"); err != nil {
+			t.Fatalf("wisp set: %v", err)
+		}
+
+		got := resolveFormula("mol-custom", false, tmpDir, rigName)
+		if got != "mol-custom" {
+			t.Errorf("got %q, want %q", got, "mol-custom")
+		}
+	})
+
+	t.Run("empty rigName falls back to hardcoded default", func(t *testing.T) {
+		t.Parallel()
+		got := resolveFormula("", false, "/tmp/nonexistent", "")
+		if got != "mol-polecat-work" {
+			t.Errorf("got %q, want %q", got, "mol-polecat-work")
+		}
+	})
 }

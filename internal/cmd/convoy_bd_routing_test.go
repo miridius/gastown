@@ -91,8 +91,10 @@ func TestRunConvoyList_UsesTownRootAndStripsBeadsDir(t *testing.T) {
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 
 	scriptBody := fmt.Sprintf(`
-# Handle --allow-stale probe before BEADS_DIR check (probe inherits env)
-case "$*" in "--allow-stale version") exit 0 ;; esac
+# Allow-stale version probe is exempt from BEADS_DIR check.
+if [ "$*" = "--allow-stale version" ]; then
+  exit 0
+fi
 
 if [ -n "$BEADS_DIR" ]; then
   echo "BEADS_DIR leaked: $BEADS_DIR" >&2
@@ -162,8 +164,10 @@ func TestRunConvoyStatus_UsesTownRootAndStripsBeadsDir(t *testing.T) {
 	t.Setenv("BEADS_DIR", "/wrong/.beads")
 
 	scriptBody := fmt.Sprintf(`
-# Handle --allow-stale probe before BEADS_DIR check (probe inherits env)
-case "$*" in "--allow-stale version") exit 0 ;; esac
+# Allow-stale version probe is exempt from BEADS_DIR check.
+if [ "$*" = "--allow-stale version" ]; then
+  exit 0
+fi
 
 if [ -n "$BEADS_DIR" ]; then
   echo "BEADS_DIR leaked: $BEADS_DIR" >&2

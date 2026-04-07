@@ -69,7 +69,10 @@ func TestGetTrackedIssues_FallsBackToShowTrackedDependencies(t *testing.T) {
 case "$*" in "--allow-stale version") exit 0 ;; esac
 
 case "$*" in
-  "dep list hq-cv-ext --direction=down --type=tracks --allow-stale --json"|"dep list hq-cv-ext --direction=down --type=tracks --json")
+  "--allow-stale version")
+    exit 0
+    ;;
+  "dep list hq-cv-ext --direction=down --type=tracks --allow-stale --json")
     echo '[]'
     ;;
   "show hq-cv-ext --json")

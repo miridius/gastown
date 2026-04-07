@@ -676,8 +676,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 
 		// CRITICAL: Push branch BEFORE creating MR bead (hq-6dk53, hq-a4ksk)
 		// The MR bead triggers Refinery to process this branch. If the branch
-		// isn't pushed yet, Refinery finds nothing to merge. The worktree gets
-		// nuked at the end of gt done, so the commits are lost forever.
+		// isn't pushed yet, Refinery finds nothing to merge and the worktree
+		// sync to main deletes the local branch, making commits unrecoverable.
 		//
 		// Auto-push submodule changes BEFORE parent push (gt-dzs).
 		// If the parent repo's submodule pointer references commits that don't
@@ -739,7 +739,27 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		// polecats), ls-remote resolves the fetch URL (GitHub) not the push
 		// target (local bare repo).
 		if exists, verifyErr := g.PushRemoteBranchExists("origin", branch); verifyErr != nil {
-			style.PrintWarning("could not verify push: %v (proceeding optimistically)", verifyErr)
+			// gt-pc12: Verification failure is NOT safe to ignore. If we can't
+			// confirm the branch exists on the push target, proceeding would create
+			// an MR bead for a potentially non-existent branch. The worktree sync
+			// later deletes the local branch, making the work unrecoverable.
+			// Try bare repo fallback before failing.
+			rigPath := filepath.Join(townRoot, rigName)
+			bareRepoPath := filepath.Join(rigPath, ".repo.git")
+			verified := false
+			if _, statErr := os.Stat(bareRepoPath); statErr == nil {
+				bareGit := git.NewGitWithDir(bareRepoPath, "")
+				if bareExists, bareErr := bareGit.BranchExists(branch); bareErr == nil && bareExists {
+					verified = true
+				}
+			}
+			if !verified {
+				pushFailed = true
+				errMsg := fmt.Sprintf("push verification failed for branch '%s': %v (cannot confirm branch exists on push target)", branch, verifyErr)
+				doneErrors = append(doneErrors, errMsg)
+				style.PrintWarning("%s\nLocal branch preserved for recovery. Witness will be notified.", errMsg)
+				goto notifyWitness
+			}
 		} else if !exists {
 			// Push "succeeded" but branch not on push target — try bare repo
 			// verification (worktree git may not see the pushed ref).
@@ -1260,6 +1280,11 @@ notifyWitness:
 		// Non-fatal: if sync fails, the polecat is still IDLE and the Witness
 		// or next gt sling can handle the branch state.
 		//
+		// gt-pc12: Only sync when exitType is COMPLETED and push+MR succeeded.
+		// For ESCALATED/DEFERRED exits, no push was attempted — syncing to main
+		// and deleting the local branch would destroy the only copy of the work.
+		// For failed push/MR, preserve the branch for recovery.
+		//
 		// GUARD (gt-pvx): Refuse to sync if uncommitted changes remain.
 		// If the auto-commit safety net above failed (git add/commit error),
 		// switching branches would discard the work. Better to leave the worktree
@@ -1272,26 +1297,48 @@ notifyWitness:
 				fmt.Printf("  Files: %s\n", ws.String())
 			}
 		}
-		if cwdAvailable && !pushFailed && syncSafe {
+		if cwdAvailable && exitType == ExitCompleted && !pushFailed && !mrFailed && syncSafe {
 			// Remember the old branch so we can delete it after switching
 			oldBranch := branch
 
-			fmt.Printf("%s Syncing worktree to %s...\n", style.Bold.Render("→"), defaultBranch)
-			if err := g.Checkout(defaultBranch); err != nil {
-				style.PrintWarning("could not checkout %s: %v (worktree stays on feature branch)", defaultBranch, err)
-			} else if err := g.Pull("origin", defaultBranch); err != nil {
-				style.PrintWarning("could not pull %s: %v (worktree on %s but may be stale)", defaultBranch, defaultBranch, err)
+			// gt-pc12: Final safety check — verify branch exists on push target
+			// before deleting the local copy. Push verification earlier may have
+			// been optimistic or the remote may have rejected the ref after ack.
+			branchOnRemote := false
+			if remoteExists, rmErr := g.PushRemoteBranchExists("origin", oldBranch); rmErr == nil && remoteExists {
+				branchOnRemote = true
 			} else {
-				fmt.Printf("%s Worktree synced to %s\n", style.Bold.Render("✓"), defaultBranch)
+				// Try bare repo fallback
+				rigPath := filepath.Join(townRoot, rigName)
+				bareRepoPath := filepath.Join(rigPath, ".repo.git")
+				if _, statErr := os.Stat(bareRepoPath); statErr == nil {
+					bareGit := git.NewGitWithDir(bareRepoPath, "")
+					if bareExists, bareErr := bareGit.BranchExists(oldBranch); bareErr == nil && bareExists {
+						branchOnRemote = true
+					}
+				}
 			}
 
-			// Delete the old polecat branch (non-fatal: cleanup only).
-			// This prevents stale branch accumulation from persistent polecats.
-			if oldBranch != "" && oldBranch != defaultBranch && oldBranch != "master" {
-				if err := g.DeleteBranch(oldBranch, true); err != nil {
-					style.PrintWarning("could not delete old branch %s: %v", oldBranch, err)
+			if !branchOnRemote {
+				style.PrintWarning("branch %s not confirmed on push target — preserving local branch to prevent data loss (gt-pc12)", oldBranch)
+			} else {
+				fmt.Printf("%s Syncing worktree to %s...\n", style.Bold.Render("→"), defaultBranch)
+				if err := g.Checkout(defaultBranch); err != nil {
+					style.PrintWarning("could not checkout %s: %v (worktree stays on feature branch)", defaultBranch, err)
+				} else if err := g.Pull("origin", defaultBranch); err != nil {
+					style.PrintWarning("could not pull %s: %v (worktree on %s but may be stale)", defaultBranch, defaultBranch, err)
 				} else {
-					fmt.Printf("%s Deleted old branch %s\n", style.Bold.Render("✓"), oldBranch)
+					fmt.Printf("%s Worktree synced to %s\n", style.Bold.Render("✓"), defaultBranch)
+				}
+
+				// Delete the old polecat branch (non-fatal: cleanup only).
+				// This prevents stale branch accumulation from persistent polecats.
+				if oldBranch != "" && oldBranch != defaultBranch && oldBranch != "master" {
+					if err := g.DeleteBranch(oldBranch, true); err != nil {
+						style.PrintWarning("could not delete old branch %s: %v", oldBranch, err)
+					} else {
+						fmt.Printf("%s Deleted old branch %s\n", style.Bold.Render("✓"), oldBranch)
+					}
 				}
 			}
 		}

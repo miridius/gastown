@@ -59,8 +59,9 @@ type Daemon struct {
 	curator       *feed.Curator
 	convoyManager *ConvoyManager
 	beadsStores   map[string]beadsdk.Storage
-	doltServer    *DoltServerManager
-	krcPruner     *KRCPruner
+	doltServer       *DoltServerManager
+	controlleManager *ControlleManager
+	krcPruner        *KRCPruner
 
 	// disabledPatrols is loaded from town settings (disabled_patrols field).
 	// Provides a simple way to disable individual patrol dogs without editing
@@ -257,6 +258,15 @@ func New(config *Config) (*Daemon, error) {
 		}
 	}
 
+	// Initialize Controlle manager if configured
+	var controlleManager *ControlleManager
+	if patrolConfig != nil && patrolConfig.Patrols != nil && patrolConfig.Patrols.Controlle != nil {
+		controlleManager = NewControlleManager(config.TownRoot, patrolConfig.Patrols.Controlle, logger.Printf)
+		if controlleManager.IsEnabled() {
+			logger.Printf("Controlle bot management enabled")
+		}
+	}
+
 	// PATCH-006: Resolve binary paths at startup.
 	gtPath, err := exec.LookPath("gt")
 	if err != nil {
@@ -314,8 +324,9 @@ func New(config *Config) (*Daemon, error) {
 		logger:          logger,
 		ctx:             ctx,
 		cancel:          cancel,
-		doltServer:      doltServer,
-		gtPath:          gtPath,
+		doltServer:       doltServer,
+		controlleManager: controlleManager,
+		gtPath:           gtPath,
 		bdPath:          bdPath,
 		restartTracker:  restartTracker,
 		otelProvider:    otelProvider,
@@ -814,6 +825,9 @@ func (d *Daemon) heartbeat(state *State) {
 
 	// 6. Ensure Mayor is running (restart if dead)
 	d.ensureMayorRunning()
+
+	// 6.25. Ensure Controlle Telegram gateway is running (gt-4oli)
+	d.ensureControlleRunning()
 
 	// 6.5. Handle Dog lifecycle: cleanup stuck dogs and dispatch plugins
 	// Pressure-gated: dog dispatch spawns new agent sessions.
@@ -1634,6 +1648,18 @@ func (d *Daemon) ensureMayorRunning() {
 func (d *Daemon) isMayorAgentAlive(mgr *mayor.Manager) bool {
 	t := tmux.NewTmux()
 	return t.IsAgentAlive(mgr.SessionName())
+}
+
+// ensureControlleRunning ensures the Controlle Telegram gateway is running.
+// Opt-in via patrols.controlle in daemon.json. (gt-4oli)
+func (d *Daemon) ensureControlleRunning() {
+	if d.controlleManager == nil || !d.controlleManager.IsEnabled() {
+		return
+	}
+
+	if err := d.controlleManager.EnsureRunning(); err != nil {
+		d.logger.Printf("Error ensuring Controlle is running: %v", err)
+	}
 }
 
 // killDeaconSessions kills leftover deacon and boot tmux sessions.

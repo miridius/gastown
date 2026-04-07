@@ -21,7 +21,7 @@ var (
 	Commit = ""
 	Branch = ""
 	// BuiltProperly is set to "1" by `make build`. If empty, the binary was built
-	// with raw `go build` and is likely unsigned (will be killed on macOS).
+	// with raw `go build` or `go install` (missing version metadata; unsigned on macOS).
 	BuiltProperly = ""
 )
 

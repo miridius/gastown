@@ -26,8 +26,8 @@ fi
 GT_RIG_SRC="/gt/gastown/mayor/rig"
 NEED_REBUILD=false
 
-# Check 1: Missing BuiltProperly ldflag (shows "go build" warning)
-if /app/gastown/gt version 2>&1 | grep -q "WARNING.*built with"; then
+# Check 1: Missing BuiltProperly ldflag (shows "built without" warning)
+if /app/gastown/gt version 2>&1 | grep -q "WARNING.*built without"; then
     echo "Self-heal: stale binary detected (missing ldflag)."
     NEED_REBUILD=true
 fi

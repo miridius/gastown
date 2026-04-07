@@ -120,6 +120,15 @@ Federated work coordination network linking Gas Towns through DoltHub. Rigs post
 
 ## Installation
 
+### Supported Platforms
+
+Gas Town requires **macOS or Linux**. Windows is not supported — the session management
+layer depends on tmux, which is not available on Windows (see [#3538](https://github.com/steveyegge/gastown/issues/3538)
+for details). WSL is untested but may work.
+
+> **Note:** The standalone issue tracker [beads (`bd`)](https://github.com/steveyegge/beads) does
+> work on Windows. Build with `-tags gms_pure_go` to avoid the ICU/CGO dependency.
+
 ### Prerequisites
 
 - **Go 1.25+** - [go.dev/dl](https://go.dev/dl/)
@@ -127,7 +136,7 @@ Federated work coordination network linking Gas Towns through DoltHub. Rigs post
 - **Dolt 1.82.4+** - [github.com/dolthub/dolt](https://github.com/dolthub/dolt)
 - **beads (bd) 0.55.4+** - [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
 - **sqlite3** - for convoy database queries (usually pre-installed on macOS/Linux)
-- **tmux 3.0+** - recommended for full experience
+- **tmux 3.0+** - required for session management (crew, peek, nudge, daemon)
 - **Claude Code CLI** (default runtime) - [claude.ai/code](https://claude.ai/code)
 - **Codex CLI** (optional runtime) - [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)
 - **GitHub Copilot CLI** (optional runtime) - [cli.github.com](https://cli.github.com) (requires Copilot seat)
@@ -135,18 +144,17 @@ Federated work coordination network linking Gas Towns through DoltHub. Rigs post
 ### Setup (Docker-Compose below)
 
 ```bash
-# Install Gas Town
+# Install Gas Town (macOS/Linux only)
 $ brew install gastown                                    # Homebrew (recommended)
 $ npm install -g @gastown/gt                              # npm
-$ go install github.com/steveyegge/gastown/cmd/gt@latest  # From source (macOS/Linux)
-
-# Windows (or if go install fails): clone and build manually
-$ git clone https://github.com/steveyegge/gastown.git && cd gastown
-$ go build -o gt.exe ./cmd/gt
-$ mv gt.exe $HOME/go/bin/  # or add gastown to PATH
+$ go install github.com/steveyegge/gastown/cmd/gt@latest  # From source (works but see note below)
 
 # If using go install, add Go binaries to PATH (add to ~/.zshrc or ~/.bashrc)
 export PATH="$PATH:$HOME/go/bin"
+
+# Recommended: clone and use make build (includes version metadata + code signing)
+$ git clone https://github.com/steveyegge/gastown.git && cd gastown
+$ make build
 
 # Create workspace with git initialization
 gt install ~/gt --git

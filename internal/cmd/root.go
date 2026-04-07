@@ -94,17 +94,14 @@ var branchCheckExemptCommands = map[string]bool{
 // persistentPreRun runs before every command.
 func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// Check if binary was built properly (via make build, not raw go build).
-	// Raw go build produces unsigned binaries that macOS may kill.
-	// Warning only - doesn't block execution.
-	// Skip warning when Build was set by a package manager (e.g. Homebrew sets
-	// Build to "Homebrew" via ldflags but doesn't set BuiltProperly).
+	// Raw go build / go install skip ldflags from the Makefile, producing a binary
+	// without version metadata or (on macOS) code signing. Warn but allow execution
+	// so that `go install` builds are usable. Skip when Build was set by a package
+	// manager (e.g. Homebrew sets Build to "Homebrew" via ldflags).
 	if BuiltProperly == "" && Build == "dev" {
-		fmt.Fprintln(os.Stderr, "ERROR: This binary was built with 'go build' directly.")
-		fmt.Fprintln(os.Stderr, "       macOS will SIGKILL unsigned binaries. Use 'make build' instead.")
-		if gtRoot := os.Getenv("GT_ROOT"); gtRoot != "" {
-			fmt.Fprintf(os.Stderr, "       Run from: %s\n", gtRoot)
-		}
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, "WARNING: This binary was built without Makefile ldflags (e.g. via 'go install').")
+		fmt.Fprintln(os.Stderr, "         Version metadata is missing and macOS may SIGKILL unsigned binaries.")
+		fmt.Fprintln(os.Stderr, "         For a full build, use: make build (or brew install gastown)")
 	}
 
 	// Initialize CLI theme (dark/light mode support)

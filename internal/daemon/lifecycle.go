@@ -990,7 +990,7 @@ func (d *Daemon) listAgentBeadsJSON(dest interface{}) error {
 
 // mergeAgentBeadJSON merges JSON arrays from wisps and issues queries.
 // Returns a combined JSON array with wisps taking precedence for duplicate IDs.
-// Filters wisps to only include agent beads (type=agent or label gt:agent).
+// Filters wisps to only include agent beads (label gt:agent or legacy type=agent).
 func mergeAgentBeadJSON(wispJSON, issuesJSON []byte) []byte {
 	type agentEntry struct {
 		ID     string   `json:"id"`

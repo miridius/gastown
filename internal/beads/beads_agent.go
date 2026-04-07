@@ -225,7 +225,7 @@ func (b *Beads) CreateAgentBead(id, title string, fields *AgentFields) (*Issue, 
 			"--id=" + id,
 			"--title=" + title,
 			"--description=" + description,
-			"--type=agent",
+			"--type=task",
 			"--labels=gt:agent",
 		}
 		if NeedsForceForID(id) {
@@ -330,8 +330,8 @@ func (b *Beads) CreateOrReopenAgentBead(id, title string, fields *AgentFields) (
 		}
 	}
 
-	// Update the bead with new fields and ensure type=agent (gt-dr02sy:
-	// old beads may have type=task, which breaks bd slot set).
+	// Update the bead with new fields and ensure type=task with gt:agent label
+	// (gt-2jsj: beads v1.0.0 removed "agent" from built-in types).
 	description := FormatAgentDescription(title, fields)
 	updateOpts := UpdateOptions{
 		Title:       &title,
@@ -342,7 +342,7 @@ func (b *Beads) CreateOrReopenAgentBead(id, title string, fields *AgentFields) (
 		return nil, fmt.Errorf("updating agent bead: %w", err)
 	}
 	// Fix type separately — UpdateOptions doesn't support type changes
-	if _, err := target.run("update", id, "--type=agent"); err != nil {
+	if _, err := target.run("update", id, "--type=task"); err != nil {
 		return nil, fmt.Errorf("fixing agent bead type: %w", err)
 	}
 
@@ -631,8 +631,9 @@ func (b *Beads) GetAgentBead(id string) (*Issue, *AgentFields, error) {
 func (b *Beads) ListAgentBeads() (map[string]*Issue, error) {
 	// Query issues table first. Issues include labels and type metadata used by
 	// doctor checks (for example, validating gt:agent labels).
-	// Agent beads are type=agent (infrastructure), hidden by bd list default filter.
-	// Use --include-infra so they appear in results.
+	// Agent beads use type=task with gt:agent label (gt-2jsj: beads v1.0.0
+	// removed "agent" from built-in types). Legacy beads may still have
+	// type=agent, so use --include-infra to ensure they appear in results.
 	out, err := b.run("list", "--label=gt:agent", "--include-infra", "--json", "--flat", "--no-pager")
 	if err != nil {
 		return nil, err

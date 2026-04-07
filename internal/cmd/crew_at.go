@@ -370,12 +370,14 @@ func runCrewAt(cmd *cobra.Command, args []string) error {
 		return execAgent(agentCfg, beacon)
 	}
 
-	// If inside tmux (but different session), don't switch - just inform user
-	insideTmux := tmux.IsInsideTmux()
+	// If inside tmux on the SAME socket, use C-b s to switch.
+	// If inside tmux on a DIFFERENT socket (e.g., user's personal tmux),
+	// we must fall through to attachToTmuxSession which handles cross-socket attach.
+	sameSocket := isInSameTmuxSocket()
 	if debug {
-		fmt.Printf("[DEBUG] tmux.IsInsideTmux()=%v\n", insideTmux)
+		fmt.Printf("[DEBUG] tmux.IsInsideTmux()=%v, isInSameTmuxSocket()=%v\n", tmux.IsInsideTmux(), sameSocket)
 	}
-	if insideTmux {
+	if sameSocket {
 		fmt.Printf("Session %s ready. Use C-b s to switch.\n", sessionID)
 		return nil
 	}

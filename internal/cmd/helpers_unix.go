@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/steveyegge/gastown/internal/config"
@@ -31,16 +32,38 @@ func attachToTmuxSession(sessionID string) error {
 	}
 
 	var args []string
+	env := os.Environ()
 	if isInSameTmuxSocket() {
 		// Same tmux socket: switch to the target session
 		args = append(baseArgs, "switch-client", "-t", sessionID)
 	} else {
 		// Outside tmux or different socket: attach to the session
 		args = append(baseArgs, "attach-session", "-t", sessionID)
+		// When inside tmux on a different socket (e.g., user's personal tmux server),
+		// tmux refuses attach-session if TMUX env var is set (nested session protection).
+		// Strip TMUX and TMUX_PANE so cross-socket attach works correctly.
+		// See: https://github.com/gastownhall/gastown/issues/3537
+		if tmux.IsInsideTmux() {
+			env = filterTmuxEnv(env)
+		}
 	}
 
 	// Replace the Go process with tmux for direct terminal control
-	return syscall.Exec(tmuxPath, args, os.Environ())
+	return syscall.Exec(tmuxPath, args, env)
+}
+
+// filterTmuxEnv removes TMUX and TMUX_PANE from the environment slice.
+// This allows cross-socket tmux attach-session to work when the caller is
+// already inside a tmux session on a different socket.
+func filterTmuxEnv(env []string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, "TMUX=") || strings.HasPrefix(e, "TMUX_PANE=") {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	return filtered
 }
 
 // execAgent execs the configured agent, replacing the current process.

@@ -772,7 +772,11 @@ func (t *Tmux) killSplitBrainSession(name string) {
 	if t.socketName == "" || t.socketName == "default" || t.socketName == noTownSocket {
 		return // Already on default or no town context — nothing to clean up
 	}
-	other := NewTmuxWithSocket("default")
+	// Use empty socket name to target the actual default tmux server (no -L flag).
+	// Previously this used "default" which targets a socket NAMED "default" rather
+	// than the unnamed default server where user sessions typically live.
+	// See: https://github.com/gastownhall/gastown/issues/3537
+	other := &Tmux{socketName: ""}
 	if running, _ := other.HasSession(name); running {
 		_ = other.KillSessionWithProcesses(name)
 	}

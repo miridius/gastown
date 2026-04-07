@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/tmux"
@@ -38,6 +39,11 @@ func attachToTmuxSession(sessionID string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// When inside tmux on a different socket, strip TMUX/TMUX_PANE to avoid
+	// nested session refusal during cross-socket attach.
+	if tmux.IsInsideTmux() && !isInSameTmuxSocket() {
+		cmd.Env = filterTmuxEnvWindows(os.Environ())
+	}
 
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -47,6 +53,18 @@ func attachToTmuxSession(sessionID string) error {
 	}
 	os.Exit(0)
 	return nil // unreachable
+}
+
+// filterTmuxEnvWindows removes TMUX and TMUX_PANE from the environment slice.
+func filterTmuxEnvWindows(env []string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, "TMUX=") || strings.HasPrefix(e, "TMUX_PANE=") {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	return filtered
 }
 
 // execAgent runs the configured agent, replacing the current process.

@@ -91,6 +91,14 @@ type TownSettings struct {
 	// Convoy configures convoy behavior settings.
 	Convoy *ConvoyConfig `json:"convoy,omitempty"`
 
+	// RoleEffort maps role names to Claude Code effort levels for per-role reasoning depth.
+	// Keys are role names: "mayor", "deacon", "witness", "refinery", "polecat", "crew".
+	// Values are effort levels: "low", "medium", "high", "max".
+	// This allows cost optimization by using lower reasoning for patrol roles.
+	// Resolution: rig RoleEffort > town RoleEffort > cost-tier defaults > "high".
+	// Example: {"witness": "medium", "polecat": "high", "boot": "low"}
+	RoleEffort map[string]string `json:"role_effort,omitempty"`
+
 	// CostTier tracks which cost tier preset was applied (informational).
 	// Actual model assignments live in RoleAgents and Agents.
 	// Values: "standard", "economy", "budget", or empty for custom configs.
@@ -670,6 +678,12 @@ type RigSettings struct {
 	// Takes precedence over RoleAgents["crew"] but is overridden by explicit --agent flags.
 	// Example: {"denali": "codex", "glacier": "gemini"}
 	WorkerAgents map[string]string `json:"worker_agents,omitempty"`
+
+	// RoleEffort maps role names to Claude Code effort levels for per-role reasoning depth.
+	// Overrides TownSettings.RoleEffort for this specific rig.
+	// Values: "low", "medium", "high", "max".
+	// Example: {"witness": "low", "polecat": "high"}
+	RoleEffort map[string]string `json:"role_effort,omitempty"`
 
 	Review *ReviewConfig `json:"review,omitempty"` // meerkat review settings
 }

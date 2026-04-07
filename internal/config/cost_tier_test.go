@@ -643,3 +643,172 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestValidEffortLevels(t *testing.T) {
+	t.Parallel()
+	levels := ValidEffortLevels()
+	if len(levels) != 4 {
+		t.Fatalf("ValidEffortLevels() returned %d levels, want 4", len(levels))
+	}
+	expected := map[string]bool{"low": true, "medium": true, "high": true, "max": true}
+	for _, level := range levels {
+		if !expected[level] {
+			t.Errorf("unexpected level %q", level)
+		}
+	}
+}
+
+func TestIsValidEffortLevel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		level string
+		want  bool
+	}{
+		{"low", true},
+		{"medium", true},
+		{"high", true},
+		{"max", true},
+		{"turbo", false},
+		{"", false},
+		{"High", false}, // case-sensitive
+	}
+	for _, tt := range tests {
+		t.Run(tt.level, func(t *testing.T) {
+			t.Parallel()
+			if got := IsValidEffortLevel(tt.level); got != tt.want {
+				t.Errorf("IsValidEffortLevel(%q) = %v, want %v", tt.level, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCostTierRoleEffort(t *testing.T) {
+	t.Parallel()
+
+	t.Run("standard tier gives high to all core roles", func(t *testing.T) {
+		t.Parallel()
+		re := CostTierRoleEffort(TierStandard)
+		if re == nil {
+			t.Fatal("standard tier returned nil")
+		}
+		for _, role := range []string{"mayor", "deacon", "witness", "refinery", "polecat", "crew"} {
+			if re[role] != "high" {
+				t.Errorf("standard[%q] = %q, want %q", role, re[role], "high")
+			}
+		}
+		// boot and dog get medium on standard
+		for _, role := range []string{"boot", "dog"} {
+			if re[role] != "medium" {
+				t.Errorf("standard[%q] = %q, want %q", role, re[role], "medium")
+			}
+		}
+	})
+
+	t.Run("economy tier reduces patrol roles", func(t *testing.T) {
+		t.Parallel()
+		re := CostTierRoleEffort(TierEconomy)
+		if re == nil {
+			t.Fatal("economy tier returned nil")
+		}
+		// Workers stay high
+		for _, role := range []string{"mayor", "polecat", "crew"} {
+			if re[role] != "high" {
+				t.Errorf("economy[%q] = %q, want %q", role, re[role], "high")
+			}
+		}
+		// Patrol roles get medium
+		for _, role := range []string{"deacon", "witness", "refinery"} {
+			if re[role] != "medium" {
+				t.Errorf("economy[%q] = %q, want %q", role, re[role], "medium")
+			}
+		}
+		// Utility roles get low
+		for _, role := range []string{"boot", "dog"} {
+			if re[role] != "low" {
+				t.Errorf("economy[%q] = %q, want %q", role, re[role], "low")
+			}
+		}
+	})
+
+	t.Run("budget tier further reduces effort", func(t *testing.T) {
+		t.Parallel()
+		re := CostTierRoleEffort(TierBudget)
+		if re == nil {
+			t.Fatal("budget tier returned nil")
+		}
+		// Workers stay high (mayor, polecat) or medium (crew)
+		if re["mayor"] != "high" {
+			t.Errorf("budget[mayor] = %q, want high", re["mayor"])
+		}
+		if re["polecat"] != "high" {
+			t.Errorf("budget[polecat] = %q, want high", re["polecat"])
+		}
+		if re["crew"] != "medium" {
+			t.Errorf("budget[crew] = %q, want medium", re["crew"])
+		}
+		// Patrol and utility roles get low
+		for _, role := range []string{"deacon", "witness", "refinery", "boot", "dog"} {
+			if re[role] != "low" {
+				t.Errorf("budget[%q] = %q, want %q", role, re[role], "low")
+			}
+		}
+	})
+
+	t.Run("invalid tier returns nil", func(t *testing.T) {
+		t.Parallel()
+		if got := CostTierRoleEffort("invalid"); got != nil {
+			t.Error("invalid tier should return nil")
+		}
+	})
+}
+
+func TestApplyCostTier_SetsRoleEffort(t *testing.T) {
+	t.Parallel()
+
+	t.Run("economy tier sets role_effort", func(t *testing.T) {
+		t.Parallel()
+		settings := NewTownSettings()
+		if err := ApplyCostTier(settings, TierEconomy); err != nil {
+			t.Fatalf("ApplyCostTier: %v", err)
+		}
+		if settings.RoleEffort == nil {
+			t.Fatal("RoleEffort is nil after ApplyCostTier")
+		}
+		if settings.RoleEffort["witness"] != "medium" {
+			t.Errorf("RoleEffort[witness] = %q, want %q", settings.RoleEffort["witness"], "medium")
+		}
+		if settings.RoleEffort["polecat"] != "high" {
+			t.Errorf("RoleEffort[polecat] = %q, want %q", settings.RoleEffort["polecat"], "high")
+		}
+	})
+
+	t.Run("switching tiers updates role_effort", func(t *testing.T) {
+		t.Parallel()
+		settings := NewTownSettings()
+		if err := ApplyCostTier(settings, TierEconomy); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyCostTier(settings, TierBudget); err != nil {
+			t.Fatal(err)
+		}
+		// Budget: witness should be "low" (was "medium" on economy)
+		if settings.RoleEffort["witness"] != "low" {
+			t.Errorf("after budget, RoleEffort[witness] = %q, want %q", settings.RoleEffort["witness"], "low")
+		}
+	})
+}
+
+func TestFormatTierRoleTable_IncludesEffort(t *testing.T) {
+	t.Parallel()
+	output := FormatTierRoleTable(TierEconomy)
+	// Should contain effort levels
+	if !contains(output, "effort=") {
+		t.Error("FormatTierRoleTable should include effort= column")
+	}
+	if !contains(output, "effort=medium") {
+		t.Error("economy tier table should show effort=medium for patrol roles")
+	}
+	if !contains(output, "effort=high") {
+		t.Error("economy tier table should show effort=high for worker roles")
+	}
+}

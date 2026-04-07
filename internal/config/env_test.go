@@ -1279,3 +1279,145 @@ func TestClaudeConfigDir_EnvVar(t *testing.T) {
 		t.Errorf("ClaudeConfigDir() = %q, want %q", got, customDir)
 	}
 }
+
+func TestResolveRoleEffort_Fallback(t *testing.T) {
+	t.Parallel()
+	// With no config, no env var, should return DefaultEffortLevel
+	got := resolveRoleEffort("polecat", "", "")
+	if got != DefaultEffortLevel {
+		t.Errorf("resolveRoleEffort fallback = %q, want %q", got, DefaultEffortLevel)
+	}
+}
+
+func TestResolveRoleEffort_TownSettings(t *testing.T) {
+	t.Parallel()
+
+	townDir := t.TempDir()
+	settingsPath := TownSettingsPath(townDir)
+	settings := NewTownSettings()
+	settings.RoleEffort = map[string]string{
+		"witness": "low",
+		"polecat": "max",
+	}
+	if err := SaveTownSettings(settingsPath, settings); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+
+	// Witness should get "low" from town settings
+	if got := resolveRoleEffort("witness", townDir, ""); got != "low" {
+		t.Errorf("witness effort = %q, want %q", got, "low")
+	}
+
+	// Polecat should get "max" from town settings
+	if got := resolveRoleEffort("polecat", townDir, ""); got != "max" {
+		t.Errorf("polecat effort = %q, want %q", got, "max")
+	}
+
+	// Mayor has no entry, should fall back to default
+	if got := resolveRoleEffort("mayor", townDir, ""); got != DefaultEffortLevel {
+		t.Errorf("mayor effort = %q, want %q", got, DefaultEffortLevel)
+	}
+}
+
+func TestResolveRoleEffort_RigOverridesTown(t *testing.T) {
+	t.Parallel()
+
+	townDir := t.TempDir()
+	rigDir := filepath.Join(townDir, "testrig")
+	if err := os.MkdirAll(filepath.Join(rigDir, "settings"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Town says witness = "medium"
+	townSettings := NewTownSettings()
+	townSettings.RoleEffort = map[string]string{"witness": "medium"}
+	if err := SaveTownSettings(TownSettingsPath(townDir), townSettings); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rig says witness = "low" (should override town)
+	rigSettings := &RigSettings{
+		Type:       "rig-settings",
+		Version:    1,
+		RoleEffort: map[string]string{"witness": "low"},
+	}
+	if err := SaveRigSettings(RigSettingsPath(rigDir), rigSettings); err != nil {
+		t.Fatal(err)
+	}
+
+	got := resolveRoleEffort("witness", townDir, rigDir)
+	if got != "low" {
+		t.Errorf("rig override: witness effort = %q, want %q", got, "low")
+	}
+}
+
+func TestResolveRoleEffort_CostTierDefaults(t *testing.T) {
+	t.Parallel()
+
+	townDir := t.TempDir()
+	settings := NewTownSettings()
+	settings.CostTier = "economy"
+	if err := SaveTownSettings(TownSettingsPath(townDir), settings); err != nil {
+		t.Fatal(err)
+	}
+
+	// Economy tier: witness should get "medium", polecat should get "high"
+	if got := resolveRoleEffort("witness", townDir, ""); got != "medium" {
+		t.Errorf("economy witness effort = %q, want %q", got, "medium")
+	}
+	if got := resolveRoleEffort("polecat", townDir, ""); got != "high" {
+		t.Errorf("economy polecat effort = %q, want %q", got, "high")
+	}
+}
+
+func TestResolveRoleEffort_InvalidValueIgnored(t *testing.T) {
+	t.Parallel()
+
+	townDir := t.TempDir()
+	settings := NewTownSettings()
+	settings.RoleEffort = map[string]string{"witness": "turbo"} // invalid
+	if err := SaveTownSettings(TownSettingsPath(townDir), settings); err != nil {
+		t.Fatal(err)
+	}
+
+	// Invalid value should be ignored, fall through to default
+	got := resolveRoleEffort("witness", townDir, "")
+	if got != DefaultEffortLevel {
+		t.Errorf("invalid value: witness effort = %q, want %q", got, DefaultEffortLevel)
+	}
+}
+
+func TestAgentEnv_EffortLevelPerRole(t *testing.T) {
+	t.Parallel()
+
+	townDir := t.TempDir()
+	settings := NewTownSettings()
+	settings.RoleEffort = map[string]string{
+		"witness": "low",
+		"polecat": "max",
+	}
+	if err := SaveTownSettings(TownSettingsPath(townDir), settings); err != nil {
+		t.Fatal(err)
+	}
+
+	// Witness should get "low"
+	env := AgentEnv(AgentEnvConfig{
+		Role:     "witness",
+		Rig:      "testrig",
+		TownRoot: townDir,
+	})
+	if got := env["CLAUDE_CODE_EFFORT_LEVEL"]; got != "low" {
+		t.Errorf("witness CLAUDE_CODE_EFFORT_LEVEL = %q, want %q", got, "low")
+	}
+
+	// Polecat should get "max"
+	env = AgentEnv(AgentEnvConfig{
+		Role:      "polecat",
+		Rig:       "testrig",
+		AgentName: "chrome",
+		TownRoot:  townDir,
+	})
+	if got := env["CLAUDE_CODE_EFFORT_LEVEL"]; got != "max" {
+		t.Errorf("polecat CLAUDE_CODE_EFFORT_LEVEL = %q, want %q", got, "max")
+	}
+}

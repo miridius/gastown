@@ -72,6 +72,16 @@
         "dog":      "opus-46"
     },
 
+    "role_effort": {
+        "mayor":    "high",
+        "witness":  "medium",
+        "refinery": "medium",
+        "polecat":  "high",
+        "crew":     "high",
+        "boot":     "low",
+        "dog":      "low"
+    },
+
     "cli_theme": "dark",
 
     "agent_email_domain": "gastown.local",

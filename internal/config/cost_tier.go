@@ -39,6 +39,68 @@ func IsValidTier(tier string) bool {
 // "boot" and "dog" are utility roles that should always use the cheapest model.
 var TierManagedRoles = []string{"mayor", "deacon", "witness", "refinery", "polecat", "crew", "boot", "dog"}
 
+// ValidEffortLevels returns all valid effort level values.
+func ValidEffortLevels() []string {
+	return []string{"low", "medium", "high", "max"}
+}
+
+// IsValidEffortLevel checks if a string is a valid effort level.
+func IsValidEffortLevel(level string) bool {
+	switch level {
+	case "low", "medium", "high", "max":
+		return true
+	default:
+		return false
+	}
+}
+
+// DefaultEffortLevel is the fallback effort level when no per-role config exists.
+const DefaultEffortLevel = "high"
+
+// CostTierRoleEffort returns the role_effort mapping for a given tier.
+// Standard tier uses "high" for all roles (maximum reasoning).
+// Economy tier uses "high" for workers, "medium" for patrol roles.
+// Budget tier uses "high" for workers, "low" for patrol/utility roles.
+func CostTierRoleEffort(tier CostTier) map[string]string {
+	switch tier {
+	case TierStandard:
+		return map[string]string{
+			"mayor":    "high",
+			"deacon":   "high",
+			"witness":  "high",
+			"refinery": "high",
+			"polecat":  "high",
+			"crew":     "high",
+			"boot":     "medium",
+			"dog":      "medium",
+		}
+	case TierEconomy:
+		return map[string]string{
+			"mayor":    "high",
+			"deacon":   "medium",
+			"witness":  "medium",
+			"refinery": "medium",
+			"polecat":  "high",
+			"crew":     "high",
+			"boot":     "low",
+			"dog":      "low",
+		}
+	case TierBudget:
+		return map[string]string{
+			"mayor":    "high",
+			"deacon":   "low",
+			"witness":  "low",
+			"refinery": "low",
+			"polecat":  "high",
+			"crew":     "medium",
+			"boot":     "low",
+			"dog":      "low",
+		}
+	default:
+		return nil
+	}
+}
+
 // CostTierRoleAgents returns the role_agents mapping for a given tier.
 // All tiers explicitly map every tier-managed role. Standard tier maps all roles
 // to empty string (meaning "use default/opus"), while other tiers specify
@@ -181,10 +243,16 @@ func ApplyCostTier(settings *TownSettings, tier CostTier) error {
 	}
 
 	agents := CostTierAgents(tier)
+	roleEffort := CostTierRoleEffort(tier)
 
 	// Ensure RoleAgents map exists
 	if settings.RoleAgents == nil {
 		settings.RoleAgents = make(map[string]string)
+	}
+
+	// Ensure RoleEffort map exists
+	if settings.RoleEffort == nil {
+		settings.RoleEffort = make(map[string]string)
 	}
 
 	// Only update tier-managed roles, preserving any custom entries
@@ -195,6 +263,13 @@ func ApplyCostTier(settings *TownSettings, tier CostTier) error {
 			delete(settings.RoleAgents, role)
 		} else {
 			settings.RoleAgents[role] = agentName
+		}
+	}
+
+	// Apply effort levels for tier-managed roles
+	for _, role := range TierManagedRoles {
+		if effort, ok := roleEffort[role]; ok {
+			settings.RoleEffort[role] = effort
 		}
 	}
 
@@ -260,7 +335,7 @@ func GetCurrentTier(settings *TownSettings) string {
 // An empty or missing value in actual matches an empty expected value (both mean "use default").
 func tierRolesMatch(actual, expected map[string]string) bool {
 	for _, role := range TierManagedRoles {
-		actualVal := actual[role]   // "" if not present
+		actualVal := actual[role]     // "" if not present
 		expectedVal := expected[role] // "" means "use default"
 		if actualVal != expectedVal {
 			return false
@@ -283,13 +358,14 @@ func TierDescription(tier CostTier) string {
 	}
 }
 
-// FormatTierRoleTable returns a formatted string showing role→model assignments for a tier.
+// FormatTierRoleTable returns a formatted string showing role→model and effort assignments for a tier.
 func FormatTierRoleTable(tier CostTier) string {
 	roleAgents := CostTierRoleAgents(tier)
 	if roleAgents == nil {
 		return ""
 	}
 
+	roleEffort := CostTierRoleEffort(tier)
 	roles := []string{"mayor", "deacon", "witness", "refinery", "polecat", "crew", "boot", "dog"}
 	var lines []string
 	for _, role := range roles {
@@ -297,7 +373,11 @@ func FormatTierRoleTable(tier CostTier) string {
 		if agent == "" {
 			agent = "(default)"
 		}
-		lines = append(lines, fmt.Sprintf("  %-10s %s", role+":", agent))
+		effort := roleEffort[role]
+		if effort == "" {
+			effort = DefaultEffortLevel
+		}
+		lines = append(lines, fmt.Sprintf("  %-10s %-26s effort=%s", role+":", agent, effort))
 	}
 	return strings.Join(lines, "\n")
 }

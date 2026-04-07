@@ -10,9 +10,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/steveyegge/gastown/internal/constants"
 )
+
+// effortDeprecationOnce ensures the CLAUDE_CODE_EFFORT_LEVEL deprecation
+// warning is only printed once per process, not on every AgentEnv call.
+var effortDeprecationOnce sync.Once
 
 // IdentityEnvVars are agent identity env vars that must not leak across
 // process or session boundaries. Used by daemon sanitization (clearing
@@ -202,16 +207,17 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 	// this empty value with intentional settings like --max-old-space-size.
 	env["NODE_OPTIONS"] = ""
 
-	// Set Claude Code effort level for all agents. Opus 4.6 defaults to "medium"
-	// which under-utilizes the model's reasoning capability. Propagate any
-	// user-level override (from shell env); otherwise default to "high".
-	// Users can set CLAUDE_CODE_EFFORT_LEVEL=max in their profile for maximum
-	// reasoning depth (Opus 4.6 only, more expensive).
-	if effortLevel := os.Getenv("CLAUDE_CODE_EFFORT_LEVEL"); effortLevel != "" {
-		env["CLAUDE_CODE_EFFORT_LEVEL"] = effortLevel
-	} else {
-		env["CLAUDE_CODE_EFFORT_LEVEL"] = "high"
+	// Resolve per-role effort level. Resolution order:
+	// 1. CLAUDE_CODE_EFFORT_LEVEL env var (explicit user override, deprecated)
+	// 2. Rig's role_effort[role]
+	// 3. Town's role_effort[role]
+	// 4. Cost-tier defaults (if a tier is active)
+	// 5. Fallback: "high"
+	var rigPath string
+	if cfg.Rig != "" && cfg.TownRoot != "" {
+		rigPath = filepath.Join(cfg.TownRoot, cfg.Rig)
 	}
+	env["CLAUDE_CODE_EFFORT_LEVEL"] = resolveRoleEffort(cfg.Role, cfg.TownRoot, rigPath)
 
 	// Clear CLAUDECODE to prevent nested session detection in Claude Code v2.x.
 	// When gt sling is invoked from within a Claude Code session, CLAUDECODE=1
@@ -499,6 +505,83 @@ func parsePortFromConfigYAML(data []byte) int {
 	return 0
 }
 
+// ResolveRoleEffort returns the effort level for a given role, consulting
+// rig settings, town settings, cost-tier defaults, and the global fallback.
+// Exported for use by CLI display commands (e.g., gt config cost-tier).
+func ResolveRoleEffort(role, townRoot, rigPath string) string {
+	return resolveRoleEffort(role, townRoot, rigPath)
+}
+
+// resolveRoleEffort resolves the Claude Code effort level for a given role.
+//
+// Resolution order:
+//  1. CLAUDE_CODE_EFFORT_LEVEL env var (explicit user override — deprecated)
+//  2. Rig's role_effort[role]
+//  3. Town's role_effort[role]
+//  4. Ephemeral cost-tier defaults (GT_COST_TIER env var)
+//  5. Persisted cost-tier defaults (from town settings)
+//  6. Fallback: DefaultEffortLevel ("high")
+func resolveRoleEffort(role, townRoot, rigPath string) string {
+	// 1. Explicit env var override (deprecated path — will be removed in future)
+	if envLevel := os.Getenv("CLAUDE_CODE_EFFORT_LEVEL"); envLevel != "" {
+		if IsValidEffortLevel(envLevel) {
+			effortDeprecationOnce.Do(func() {
+				fmt.Fprintf(os.Stderr, "warning: CLAUDE_CODE_EFFORT_LEVEL env var is deprecated; use role_effort in settings instead\n")
+			})
+			return envLevel
+		}
+	}
+
+	// 2. Rig's role_effort
+	if rigPath != "" {
+		if rigSettings, err := LoadRigSettings(RigSettingsPath(rigPath)); err == nil && rigSettings != nil {
+			if rigSettings.RoleEffort != nil {
+				if effort, ok := rigSettings.RoleEffort[role]; ok && effort != "" {
+					if IsValidEffortLevel(effort) {
+						return effort
+					}
+					fmt.Fprintf(os.Stderr, "warning: rig role_effort[%s]=%q is invalid, ignoring\n", role, effort)
+				}
+			}
+		}
+	}
+
+	// 3. Town's role_effort
+	if townRoot != "" {
+		if townSettings, err := LoadOrCreateTownSettings(TownSettingsPath(townRoot)); err == nil && townSettings != nil {
+			if townSettings.RoleEffort != nil {
+				if effort, ok := townSettings.RoleEffort[role]; ok && effort != "" {
+					if IsValidEffortLevel(effort) {
+						return effort
+					}
+					fmt.Fprintf(os.Stderr, "warning: town role_effort[%s]=%q is invalid, ignoring\n", role, effort)
+				}
+			}
+
+			// 4. Ephemeral cost-tier defaults (GT_COST_TIER)
+			if tierName := os.Getenv("GT_COST_TIER"); tierName != "" && IsValidTier(tierName) {
+				if effortMap := CostTierRoleEffort(CostTier(tierName)); effortMap != nil {
+					if effort, ok := effortMap[role]; ok {
+						return effort
+					}
+				}
+			}
+
+			// 5. Persisted cost-tier defaults
+			if townSettings.CostTier != "" && IsValidTier(townSettings.CostTier) {
+				if effortMap := CostTierRoleEffort(CostTier(townSettings.CostTier)); effortMap != nil {
+					if effort, ok := effortMap[role]; ok {
+						return effort
+					}
+				}
+			}
+		}
+	}
+
+	// 6. Fallback
+	return DefaultEffortLevel
+}
+
 // AgentEnvSimple is a convenience function for simple role-based env var lookup.
 // Use this when you only need role, rig, and agentName without advanced options.
 func AgentEnvSimple(role, rig, agentName string) map[string]string {
@@ -536,7 +619,7 @@ func ShellQuote(s string) string {
 }
 
 // psQuote quotes a value for use in PowerShell $env: assignments.
-// Uses single quotes with embedded single quotes doubled ('').
+// Uses single quotes with embedded single quotes doubled (”).
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

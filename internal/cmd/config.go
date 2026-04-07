@@ -187,6 +187,92 @@ func runConfigCostTier(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Role-effort subcommand
+
+var configRoleEffortCmd = &cobra.Command{
+	Use:   "role-effort [role] [level]",
+	Short: "Get or set per-role effort levels",
+	Long: `Get or set per-role Claude Code effort levels.
+
+With no arguments, shows current effort level assignments for all roles.
+With one argument (role), shows the effort level for that role.
+With two arguments (role level), sets the effort level for that role.
+
+Effort levels control Claude Code's reasoning depth:
+  low     Minimal reasoning (cheapest)
+  medium  Claude Code default
+  high    Deep reasoning (Gas Town default)
+  max     Maximum reasoning depth (Opus 4.6 only)
+
+Examples:
+  gt config role-effort                    # Show all role effort levels
+  gt config role-effort witness            # Show witness effort level
+  gt config role-effort witness medium     # Set witness to medium effort
+  gt config role-effort polecat max        # Set polecat to max effort`,
+	Args: cobra.MaximumNArgs(2),
+	RunE: runConfigRoleEffort,
+}
+
+func runConfigRoleEffort(cmd *cobra.Command, args []string) error {
+	townRoot, err := workspace.FindFromCwd()
+	if err != nil {
+		return fmt.Errorf("finding town root: %w", err)
+	}
+
+	settingsPath := config.TownSettingsPath(townRoot)
+	townSettings, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil {
+		return fmt.Errorf("loading town settings: %w", err)
+	}
+
+	if len(args) == 0 {
+		// Show all role effort levels
+		fmt.Println("Per-role effort levels:")
+		roles := []string{"mayor", "deacon", "witness", "refinery", "polecat", "crew", "boot", "dog"}
+		for _, role := range roles {
+			effort := config.ResolveRoleEffort(role, townRoot, "")
+			source := "default"
+			if townSettings.RoleEffort != nil {
+				if _, ok := townSettings.RoleEffort[role]; ok {
+					source = "config"
+				}
+			}
+			if tierName := config.GetCurrentTier(townSettings); tierName != "" && source == "default" {
+				source = tierName + " tier"
+			}
+			fmt.Printf("  %-10s %-8s (%s)\n", role+":", effort, source)
+		}
+		return nil
+	}
+
+	role := args[0]
+
+	if len(args) == 1 {
+		// Show effort for specific role
+		effort := config.ResolveRoleEffort(role, townRoot, "")
+		fmt.Printf("%s: %s\n", role, effort)
+		return nil
+	}
+
+	// Set effort for role
+	level := args[1]
+	if !config.IsValidEffortLevel(level) {
+		return fmt.Errorf("invalid effort level %q (valid: %s)", level, strings.Join(config.ValidEffortLevels(), ", "))
+	}
+
+	if townSettings.RoleEffort == nil {
+		townSettings.RoleEffort = make(map[string]string)
+	}
+	townSettings.RoleEffort[role] = level
+
+	if err := config.SaveTownSettings(settingsPath, townSettings); err != nil {
+		return fmt.Errorf("saving town settings: %w", err)
+	}
+
+	fmt.Printf("Set %s effort to %s\n", role, style.Bold.Render(level))
+	return nil
+}
+
 // Default-agent subcommand
 
 var configDefaultAgentCmd = &cobra.Command{
@@ -1281,6 +1367,7 @@ config values such as the default AI model or provider.`,
 	// Add subcommands to config
 	configCmd.AddCommand(configAgentCmd)
 	configCmd.AddCommand(configCostTierCmd)
+	configCmd.AddCommand(configRoleEffortCmd)
 	configCmd.AddCommand(configDefaultAgentCmd)
 	configCmd.AddCommand(configAgentEmailDomainCmd)
 	configCmd.AddCommand(configSetCmd)

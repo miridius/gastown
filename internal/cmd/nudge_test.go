@@ -505,3 +505,25 @@ func TestQueueLen(t *testing.T) {
 		t.Errorf("QueueLen after drain = %d, want 0", got)
 	}
 }
+
+func TestTryStartCrewSession_RejectsNonCrew(t *testing.T) {
+	// tryStartCrewSession should reject non-crew targets
+	err := tryStartCrewSession("gastown", "alpha", "gt-alpha")
+	if err == nil {
+		t.Fatal("expected error for non-crew target")
+	}
+	if !strings.Contains(err.Error(), "--start-if-down only works for crew sessions") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestStartIfDownFlagRegistered(t *testing.T) {
+	// Verify the --start-if-down flag is registered on the nudge command.
+	f := nudgeCmd.Flags().Lookup("start-if-down")
+	if f == nil {
+		t.Fatal("--start-if-down flag not registered on nudge command")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--start-if-down default = %q, want %q", f.DefValue, "false")
+	}
+}

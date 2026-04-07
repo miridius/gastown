@@ -13,6 +13,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/crew"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/mayor"
 	"github.com/steveyegge/gastown/internal/nudge"
@@ -37,12 +38,13 @@ func hasACPSessionByName(townRoot, sessionName string) bool {
 }
 
 var (
-	nudgeMessageFlag  string
-	nudgeForceFlag    bool
-	nudgeStdinFlag    bool
-	nudgeIfFreshFlag  bool
-	nudgeModeFlag     string
-	nudgePriorityFlag string
+	nudgeMessageFlag     string
+	nudgeForceFlag       bool
+	nudgeStdinFlag       bool
+	nudgeIfFreshFlag     bool
+	nudgeModeFlag        string
+	nudgePriorityFlag    string
+	nudgeStartIfDownFlag bool
 )
 
 // Nudge delivery modes.
@@ -66,6 +68,7 @@ func init() {
 	nudgeCmd.Flags().BoolVar(&nudgeIfFreshFlag, "if-fresh", false, "Only send if caller's tmux session is <60s old (suppresses compaction nudges)")
 	nudgeCmd.Flags().StringVar(&nudgeModeFlag, "mode", NudgeModeWaitIdle, "Delivery mode: wait-idle (default), queue, or immediate")
 	nudgeCmd.Flags().StringVar(&nudgePriorityFlag, "priority", nudge.PriorityNormal, "Queue priority: normal (default) or urgent")
+	nudgeCmd.Flags().BoolVar(&nudgeStartIfDownFlag, "start-if-down", false, "Auto-start crew session if target is down")
 }
 
 var nudgeCmd = &cobra.Command{
@@ -107,6 +110,10 @@ Channel syntax:
   channel:<name>  Nudges all members of a named channel defined in
                   ~/gt/config/messaging.json under "nudge_channels".
                   Patterns like "gastown/polecats/*" are expanded.
+
+Auto-start (--start-if-down):
+  If the target crew session is not running, automatically start it
+  before delivering the nudge. Only works for crew sessions.
 
 DND (Do Not Disturb):
   If the target has DND enabled (gt dnd on), the nudge is skipped.
@@ -540,17 +547,27 @@ func runNudge(cmd *cobra.Command, args []string) (retErr error) {
 			}
 		}
 
-		// For queue/wait-idle modes, verify session exists before enqueuing.
-		// Without this, queue mode silently succeeds for nonexistent sessions —
-		// the file is written but never drained.
+		// Verify session exists before delivering.
+		// For queue/wait-idle modes this prevents silently writing files that are
+		// never drained. For --start-if-down, we check all modes so we can
+		// auto-start before any delivery attempt.
 		// ACP sessions are always allowed as they use queue mode.
-		if nudgeModeFlag != NudgeModeImmediate && !hasACPSessionByName(townRoot, sessionName) {
-			exists, err := t.HasSession(sessionName)
-			if err != nil {
-				return fmt.Errorf("checking session: %w", err)
-			}
-			if !exists {
-				return fmt.Errorf("session %q not found (cannot queue nudge for nonexistent session)", sessionName)
+		if !hasACPSessionByName(townRoot, sessionName) {
+			needsCheck := nudgeModeFlag != NudgeModeImmediate || nudgeStartIfDownFlag
+			if needsCheck {
+				exists, err := t.HasSession(sessionName)
+				if err != nil {
+					return fmt.Errorf("checking session: %w", err)
+				}
+				if !exists {
+					if nudgeStartIfDownFlag {
+						if startErr := tryStartCrewSession(rigName, polecatName, sessionName); startErr != nil {
+							return fmt.Errorf("session %q not found and auto-start failed: %w", sessionName, startErr)
+						}
+					} else {
+						return fmt.Errorf("session %q not found (cannot queue nudge for nonexistent session)", sessionName)
+					}
+				}
 			}
 		}
 
@@ -577,7 +594,18 @@ func runNudge(cmd *cobra.Command, args []string) (retErr error) {
 				return fmt.Errorf("checking session: %w", err)
 			}
 			if !exists {
-				return fmt.Errorf("session %q not found", target)
+				// --start-if-down: try to parse raw session name as crew and auto-start.
+				if nudgeStartIfDownFlag {
+					if rn, cn, _, ok := parseCrewSessionName(target); ok {
+						if startErr := tryStartCrewSession(rn, "crew/"+cn, target); startErr != nil {
+							return fmt.Errorf("session %q not found and auto-start failed: %w", target, startErr)
+						}
+					} else {
+						return fmt.Errorf("session %q not found (--start-if-down only works for crew sessions)", target)
+					}
+				} else {
+					return fmt.Errorf("session %q not found", target)
+				}
 			}
 		}
 
@@ -780,6 +808,45 @@ func resolveNudgePattern(pattern string, agents []*AgentSession) []string {
 	}
 
 	return results
+}
+
+// tryStartCrewSession attempts to auto-start a crew session that is down.
+// polecatName should be "crew/<name>" for crew addresses or just the crew name.
+// Returns nil on success, error if the target is not a crew member or start fails.
+func tryStartCrewSession(rigName, polecatName, sessionName string) error {
+	// Extract crew name from the address.
+	var crewName string
+	if strings.HasPrefix(polecatName, "crew/") {
+		crewName = strings.TrimPrefix(polecatName, "crew/")
+	} else {
+		return fmt.Errorf("--start-if-down only works for crew sessions (target is not crew)")
+	}
+
+	crewMgr, _, err := getCrewManagerForMember(rigName, crewName)
+	if err != nil {
+		return fmt.Errorf("getting crew manager: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Session %q is down, starting crew member %q...\n", sessionName, crewName)
+	if err := crewMgr.Start(crewName, crew.StartOptions{
+		Topic: "nudge-start",
+	}); err != nil {
+		return fmt.Errorf("starting crew session: %w", err)
+	}
+
+	// Wait briefly for the session to become available for nudge delivery.
+	// The session needs time to initialize tmux and start the agent.
+	t := tmux.NewTmux()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if exists, _ := t.HasSession(sessionName); exists {
+			fmt.Fprintf(os.Stderr, "Session %q started successfully\n", sessionName)
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return fmt.Errorf("session %q started but not yet available after 10s", sessionName)
 }
 
 // shouldNudgeTarget checks if a nudge should be sent based on the target's notification level.

@@ -580,14 +580,21 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 			// port, causing "database not found" errors. (GH #2405)
 			doltCfg := doltserver.DefaultConfig(m.townRoot)
 			initArgs = append(initArgs, "--server-port", strconv.Itoa(doltCfg.Port))
+			// Pass --database so bd init uses the rig's pre-created database
+			// instead of creating a prefix-based one (e.g. "gascity" not "ga").
+			// Without this, metadata.json gets dolt_database=<prefix> which
+			// causes "database not found" errors. (GH #3357)
+			initArgs = append(initArgs, "--database", opts.Name)
 			cmd := exec.Command("bd", initArgs...)
 			cmd.Dir = mayorRigPath
 			if output, err := cmd.CombinedOutput(); err != nil {
 				fmt.Printf("  Warning: Could not init bd database: %v (%s)\n", err, strings.TrimSpace(string(output)))
 			}
-			// Drop orphaned beads_<prefix> database if it differs from rigName (gt-sv1h).
-			if orphanDB := "beads_" + opts.BeadsPrefix; orphanDB != opts.Name {
-				_ = doltserver.RemoveDatabase(m.townRoot, orphanDB, true)
+			// Drop orphaned databases if they differ from rigName (gt-sv1h).
+			for _, orphanDB := range []string{"beads_" + opts.BeadsPrefix, opts.BeadsPrefix} {
+				if orphanDB != opts.Name {
+					_ = doltserver.RemoveDatabase(m.townRoot, orphanDB, true)
+				}
 			}
 		}
 
@@ -641,10 +648,12 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 		fmt.Printf("  Run 'gt doctor --fix' to repair, or it will self-heal on next daemon start.\n")
 	}
 
-	// Safety-net: drop orphaned beads_<prefix> database if it differs from rigName (gt-sv1h).
+	// Safety-net: drop orphaned databases if they differ from rigName (gt-sv1h).
 	// InitBeads already does this, but repeat here in case EnsureMetadata path diverges.
-	if orphanDB := "beads_" + opts.BeadsPrefix; orphanDB != opts.Name {
-		_ = doltserver.RemoveDatabase(m.townRoot, orphanDB, true)
+	for _, orphanDB := range []string{"beads_" + opts.BeadsPrefix, opts.BeadsPrefix} {
+		if orphanDB != opts.Name {
+			_ = doltserver.RemoveDatabase(m.townRoot, orphanDB, true)
+		}
 	}
 
 	// Set issue_prefix on the correct server-side database.
@@ -1037,6 +1046,13 @@ func (m *Manager) InitBeads(rigPath, prefix, rigName string) error {
 	// Without this, bd auto-starts its own server on a random port. (GH #2405)
 	doltCfg := doltserver.DefaultConfig(m.townRoot)
 	initArgs = append(initArgs, "--server-port", strconv.Itoa(doltCfg.Port))
+	// Pass --database so bd init uses the rig's pre-created database name
+	// instead of deriving one from the prefix (e.g. "gascity" not "ga").
+	// Without this, metadata.json gets dolt_database=<prefix> which causes
+	// "database not found" errors. (GH #3357)
+	if rigName != "" {
+		initArgs = append(initArgs, "--database", rigName)
+	}
 	cmd := exec.Command("bd", initArgs...)
 	cmd.Dir = rigPath
 	cmd.Env = filteredEnv
@@ -1064,14 +1080,15 @@ func (m *Manager) InitBeads(rigPath, prefix, rigName string) error {
 			return fmt.Errorf("bd config set issue_prefix failed: %s", strings.TrimSpace(string(prefixOutput)))
 		}
 
-		// Drop the orphaned beads_<prefix> database created by bd init (gt-sv1h).
-		// bd init --prefix creates a database named beads_<prefix> on the Dolt server,
-		// but the rig uses <rigName> as its database (set by InitRig + EnsureMetadata).
-		// Without cleanup, orphans accumulate with every polecat spawn.
+		// Drop orphaned databases that bd init may have created (gt-sv1h).
+		// bd init --prefix can create beads_<prefix> or <prefix> on the Dolt
+		// server, but the rig uses <rigName> as its database. With --database
+		// passed above this should no longer happen, but clean up as a safety net.
 		if rigName != "" {
-			orphanDB := "beads_" + prefix
-			if orphanDB != rigName {
-				_ = doltserver.RemoveDatabase(m.townRoot, orphanDB, true)
+			for _, orphanDB := range []string{"beads_" + prefix, prefix} {
+				if orphanDB != rigName {
+					_ = doltserver.RemoveDatabase(m.townRoot, orphanDB, true)
+				}
 			}
 		}
 	}

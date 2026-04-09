@@ -1281,7 +1281,7 @@ func TestClaudeConfigDir_EnvVar(t *testing.T) {
 }
 
 func TestResolveRoleEffort_Fallback(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "") // isolate from host env
 	// With no config, no env var, should return DefaultEffortLevel
 	got := resolveRoleEffort("polecat", "", "")
 	if got != DefaultEffortLevel {
@@ -1290,7 +1290,7 @@ func TestResolveRoleEffort_Fallback(t *testing.T) {
 }
 
 func TestResolveRoleEffort_TownSettings(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "") // isolate from host env
 
 	townDir := t.TempDir()
 	settingsPath := TownSettingsPath(townDir)
@@ -1320,7 +1320,7 @@ func TestResolveRoleEffort_TownSettings(t *testing.T) {
 }
 
 func TestResolveRoleEffort_RigOverridesTown(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "") // isolate from host env
 
 	townDir := t.TempDir()
 	rigDir := filepath.Join(townDir, "testrig")
@@ -1352,7 +1352,7 @@ func TestResolveRoleEffort_RigOverridesTown(t *testing.T) {
 }
 
 func TestResolveRoleEffort_CostTierDefaults(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "") // isolate from host env
 
 	townDir := t.TempDir()
 	settings := NewTownSettings()
@@ -1371,7 +1371,7 @@ func TestResolveRoleEffort_CostTierDefaults(t *testing.T) {
 }
 
 func TestResolveRoleEffort_InvalidValueIgnored(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "") // isolate from host env
 
 	townDir := t.TempDir()
 	settings := NewTownSettings()
@@ -1388,7 +1388,7 @@ func TestResolveRoleEffort_InvalidValueIgnored(t *testing.T) {
 }
 
 func TestAgentEnv_EffortLevelPerRole(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "") // isolate from host env
 
 	townDir := t.TempDir()
 	settings := NewTownSettings()

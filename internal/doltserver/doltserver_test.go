@@ -2435,6 +2435,14 @@ func TestFindBrokenWorkspaces_HealthyWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Isolate from the real Dolt server by using a port nothing listens on.
+	// Without this, IsRunning's TCP fallback finds the live server on 3307,
+	// queries SHOW DATABASES, and marks test DBs as NotServed.
+	if err := os.WriteFile(filepath.Join(townRoot, ".dolt-data", "config.yaml"),
+		[]byte("listener:\n  port: 13307\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	// Set up rigs.json (empty, only checking hq)
 	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
 		t.Fatal(err)
@@ -2590,6 +2598,12 @@ func TestFindBrokenWorkspaces_MultipleRigs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(townRoot, ".dolt-data", "rig-b", ".dolt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Isolate from the real Dolt server (see HealthyWorkspace test for rationale)
+	if err := os.WriteFile(filepath.Join(townRoot, ".dolt-data", "config.yaml"),
+		[]byte("listener:\n  port: 13307\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 

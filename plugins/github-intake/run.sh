@@ -12,6 +12,18 @@
 
 set -euo pipefail
 
+# --- Derive GT_RIG_ROOT if not set -------------------------------------------
+# Deacon dogs may not inject GT_RIG_ROOT. Derive it from the script's location:
+# plugins live at <rig_root>/plugins/<name>/run.sh, so rig root is two levels up.
+if [ -z "${GT_RIG_ROOT:-}" ]; then
+  _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  GT_RIG_ROOT="$(cd "$_SCRIPT_DIR/../.." && pwd)"
+  if [ ! -d "$GT_RIG_ROOT/.git" ] && ! git -C "$GT_RIG_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "SKIP: GT_RIG_ROOT not set and could not derive from script path"
+    exit 0
+  fi
+fi
+
 # --- Step 1: Verify Prerequisites -------------------------------------------
 
 gh auth status 2>/dev/null

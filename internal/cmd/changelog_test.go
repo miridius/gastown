@@ -179,7 +179,7 @@ func TestFormatPeriod(t *testing.T) {
 	monY, monM, monD := monday.Date()
 	weekStart := time.Date(monY, monM, monD, 0, 0, 0, 0, time.Local)
 
-	arbitraryPast := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local)
+	arbitraryPast := today.AddDate(0, 0, -30)
 
 	// On Mondays, today == weekStart. "Week of ..." takes priority over
 	// "Today" because it's more informative for changelog headers.

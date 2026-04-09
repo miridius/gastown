@@ -684,11 +684,17 @@ func (m *Manager) notifyWorkerRejected(mr *MergeRequest, reason string) {
 // content was incorporated via squash merge. The gitClient may optionally
 // implement DiffStat(ref1, ref2 string) (string, error) for this fallback.
 //
+// For rebase merges, both the ancestry and diff checks fail because the
+// rebased commits have new SHAs and the base changed. When an issueHint
+// is provided, the function falls back to searching recent target commits
+// for a commit message containing the issue ID. The gitClient may optionally
+// implement LogGrep(ref, pattern string, n int) (string, error) for this.
+//
 // The caller should fetch origin before calling this to ensure refs are current.
 func VerifyMergeOnMain(gitClient interface {
 	Rev(ref string) (string, error)
 	IsAncestor(ancestor, descendant string) (bool, error)
-}, branch, targetRef string) (string, error) {
+}, branch, targetRef string, issueHint ...string) (string, error) {
 	// Resolve the branch tip SHA
 	branchSHA, err := gitClient.Rev(branch)
 	if err != nil {
@@ -705,7 +711,7 @@ func VerifyMergeOnMain(gitClient interface {
 		return branchSHA, nil
 	}
 
-	// Fallback: squash merges create new commits so the original branch SHA
+	// Fallback 1: squash merges create new commits so the original branch SHA
 	// is never an ancestor of the target. Check if the content is identical
 	// (empty diff means the squash incorporated all branch changes).
 	type diffStatter interface {
@@ -719,6 +725,33 @@ func VerifyMergeOnMain(gitClient interface {
 		if strings.TrimSpace(stat) == "" {
 			// Empty diff: branch content is on the target (squash merge)
 			return branchSHA, nil
+		}
+	}
+
+	// Fallback 2: rebase merges change both the commit SHAs and the base,
+	// so ancestry fails and the diff is non-empty (base diverged). Search
+	// recent commits on the target for the issue ID in the commit message.
+	// The refinery preserves the original commit message (which contains
+	// the issue ID) when rebasing and merging. (gt-0kwq)
+	hint := ""
+	if len(issueHint) > 0 {
+		hint = strings.TrimSpace(issueHint[0])
+	}
+	if hint != "" {
+		type logGrepper interface {
+			LogGrep(ref, pattern string, n int) (string, error)
+		}
+		if lg, ok := gitClient.(logGrepper); ok {
+			// Search the last 20 commits on the target — covers typical batch sizes
+			out, grepErr := lg.LogGrep(targetRef, hint, 20)
+			if grepErr == nil {
+				if sha := strings.TrimSpace(out); sha != "" {
+					// Take the first matching commit SHA (most recent)
+					lines := strings.SplitN(sha, "\n", 2)
+					return strings.TrimSpace(lines[0]), nil
+				}
+			}
+			// LogGrep error or no match: fall through to the final error
 		}
 	}
 

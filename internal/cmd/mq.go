@@ -533,7 +533,7 @@ func runMQPostMerge(_ *cobra.Command, args []string) error {
 			targetRef = "origin/main"
 		}
 
-		sha, verifyErr := refinery.VerifyMergeOnMain(rigGit, "origin/"+mr.Branch, targetRef)
+		sha, verifyErr := refinery.VerifyMergeOnMain(rigGit, "origin/"+mr.Branch, targetRef, mr.IssueID)
 		if verifyErr != nil {
 			return fmt.Errorf("merge verification failed for %s: %w — bead NOT closed", mr.ID, verifyErr)
 		}

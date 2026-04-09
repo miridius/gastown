@@ -306,7 +306,7 @@ func TestManager_PostMerge_NotFound(t *testing.T) {
 }
 
 // mockGitClient implements the interface needed by VerifyMergeOnMain,
-// including the optional DiffStat method for squash-merge fallback.
+// including the optional DiffStat and LogGrep methods for fallbacks.
 type mockGitClient struct {
 	revResults      map[string]string
 	revErrors       map[string]error
@@ -314,6 +314,8 @@ type mockGitClient struct {
 	ancestorErrors  map[string]error
 	diffStatResults map[string]string // key: "ref1:ref2"
 	diffStatErrors  map[string]error
+	logGrepResults  map[string]string // key: "ref:pattern"
+	logGrepErrors   map[string]error
 }
 
 func (m *mockGitClient) Rev(ref string) (string, error) {
@@ -346,6 +348,17 @@ func (m *mockGitClient) DiffStat(ref1, ref2 string) (string, error) {
 		return stat, nil
 	}
 	return "", fmt.Errorf("no diff stat configured for %s", key)
+}
+
+func (m *mockGitClient) LogGrep(ref, pattern string, n int) (string, error) {
+	key := ref + ":" + pattern
+	if err, ok := m.logGrepErrors[key]; ok {
+		return "", err
+	}
+	if result, ok := m.logGrepResults[key]; ok {
+		return result, nil
+	}
+	return "", nil // no match
 }
 
 func TestVerifyMergeOnMain_Success(t *testing.T) {
@@ -473,5 +486,81 @@ func TestVerifyMergeOnMain_SquashMerge_DiffStatError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "squash-merge content") {
 		t.Errorf("VerifyMergeOnMain() error = %q, want 'squash-merge content' substring", err.Error())
+	}
+}
+
+func TestVerifyMergeOnMain_RebaseMerge_IssueHintMatch(t *testing.T) {
+	// Rebase merge: branch is NOT an ancestor, diff is NOT empty (base diverged),
+	// but a recent commit on main contains the issue ID in its message.
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-rebase": "aaa111\n",
+		},
+		ancestorResults: map[string]bool{
+			"aaa111:origin/main": false,
+		},
+		diffStatResults: map[string]string{
+			"origin/polecat/test/gt-rebase:origin/main": " file.go | 10 ++++\n 1 file changed\n",
+		},
+		logGrepResults: map[string]string{
+			"origin/main:gt-rebase": "bbb222ccc333ddd444eee555fff666\n",
+		},
+	}
+
+	sha, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-rebase", "origin/main", "gt-rebase")
+	if err != nil {
+		t.Fatalf("VerifyMergeOnMain() unexpected error for rebase merge: %v", err)
+	}
+	if sha != "bbb222ccc333ddd444eee555fff666" {
+		t.Errorf("VerifyMergeOnMain() SHA = %q, want %q", sha, "bbb222ccc333ddd444eee555fff666")
+	}
+}
+
+func TestVerifyMergeOnMain_RebaseMerge_NoIssueHint(t *testing.T) {
+	// Rebase merge without issue hint: should fail (no way to detect rebase)
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-nohint": "ddd444\n",
+		},
+		ancestorResults: map[string]bool{
+			"ddd444:origin/main": false,
+		},
+		diffStatResults: map[string]string{
+			"origin/polecat/test/gt-nohint:origin/main": " file.go | 5 +++\n 1 file changed\n",
+		},
+		logGrepResults: map[string]string{
+			"origin/main:gt-nohint": "eee555\n",
+		},
+	}
+
+	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-nohint", "origin/main")
+	if err == nil {
+		t.Fatal("VerifyMergeOnMain() expected error without issue hint")
+	}
+}
+
+func TestVerifyMergeOnMain_RebaseMerge_NoLogMatch(t *testing.T) {
+	// Rebase merge with issue hint but no matching commit on target
+	client := &mockGitClient{
+		revResults: map[string]string{
+			"origin/polecat/test/gt-nomatch": "fff666\n",
+		},
+		ancestorResults: map[string]bool{
+			"fff666:origin/main": false,
+		},
+		diffStatResults: map[string]string{
+			"origin/polecat/test/gt-nomatch:origin/main": " file.go | 3 +++\n 1 file changed\n",
+		},
+		logGrepResults: map[string]string{
+			// No match for this issue ID
+		},
+	}
+
+	_, err := VerifyMergeOnMain(client, "origin/polecat/test/gt-nomatch", "origin/main", "gt-nomatch")
+	if err == nil {
+		t.Fatal("VerifyMergeOnMain() expected error when no log match found")
+	}
+	if !strings.Contains(err.Error(), "NOT reachable") {
+		t.Errorf("VerifyMergeOnMain() error = %q, want 'NOT reachable' substring", err.Error())
 	}
 }

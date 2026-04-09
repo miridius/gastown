@@ -870,6 +870,14 @@ func (g *Git) RecentCommits(n int) (string, error) {
 	return g.run("log", "--oneline", fmt.Sprintf("-%d", n))
 }
 
+// LogGrep searches for commits on ref whose message contains pattern.
+// Returns up to n matching commits in --oneline --format=%H format (full SHA per line).
+// Used to detect rebased merges where the original SHA changed but the
+// commit message (containing the issue ID) was preserved.
+func (g *Git) LogGrep(ref, pattern string, n int) (string, error) {
+	return g.run("log", "--format=%H", fmt.Sprintf("--grep=%s", pattern), "--fixed-strings", fmt.Sprintf("-%d", n), ref)
+}
+
 // DeleteRemoteBranch deletes a branch on the remote.
 func (g *Git) DeleteRemoteBranch(remote, branch string) error {
 	_, err := g.run("push", remote, "--delete", branch)

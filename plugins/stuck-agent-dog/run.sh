@@ -130,15 +130,19 @@ else
   # Check deacon heartbeat file
   HEARTBEAT_FILE="$TOWN_ROOT/deacon/.deacon-heartbeat"
   if [ -f "$HEARTBEAT_FILE" ]; then
-    HEARTBEAT_TIME=$(stat -f %m "$HEARTBEAT_FILE" 2>/dev/null || stat -c %Y "$HEARTBEAT_FILE" 2>/dev/null)
-    NOW=$(date +%s)
-    HEARTBEAT_AGE=$(( NOW - HEARTBEAT_TIME ))
+    HEARTBEAT_TIME=$(stat -f %m "$HEARTBEAT_FILE" 2>/dev/null || stat -c %Y "$HEARTBEAT_FILE" 2>/dev/null || true)
+    if [ -n "$HEARTBEAT_TIME" ]; then
+      NOW=$(date +%s)
+      HEARTBEAT_AGE=$(( NOW - HEARTBEAT_TIME ))
 
-    if [ "$HEARTBEAT_AGE" -gt 600 ]; then
-      echo "  STUCK: Deacon heartbeat stale (${HEARTBEAT_AGE}s old, >10m threshold)"
-      DEACON_ISSUE="stuck_heartbeat_${HEARTBEAT_AGE}s"
+      if [ "$HEARTBEAT_AGE" -gt 600 ]; then
+        echo "  STUCK: Deacon heartbeat stale (${HEARTBEAT_AGE}s old, >10m threshold)"
+        DEACON_ISSUE="stuck_heartbeat_${HEARTBEAT_AGE}s"
+      else
+        echo "  OK: Deacon heartbeat ${HEARTBEAT_AGE}s old"
+      fi
     else
-      echo "  OK: Deacon heartbeat ${HEARTBEAT_AGE}s old"
+      echo "  WARN: could not read heartbeat file mtime"
     fi
   else
     echo "  WARN: No heartbeat file found"

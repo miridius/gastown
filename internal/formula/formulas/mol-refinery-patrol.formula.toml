@@ -487,7 +487,35 @@ If score < 0.45 (breach threshold):
 - Do NOT block the merge — Phase 1 is measurement-only
 - Proceed to handle-failures normally
 
-Track: review score, recommendation, issue count, duration."""
+**Step 7: Check for integration-touching changes needing post-merge verification**
+
+After merge, check if the source issue has the `needs-post-merge-verification` label:
+```bash
+bd show <source-issue-id>
+# Look for label: needs-post-merge-verification
+# Look for notes containing "POST-MERGE VERIFICATION NEEDED"
+```
+
+If the label is present:
+1. Do NOT skip — this is a crew gate requirement
+2. After successful merge, notify the crew for live verification:
+   ```bash
+   gt mail send <rig>/witness -s "POST-MERGE VERIFY: <issue-id>" --stdin <<'BODY'
+   Merged branch touches external integrations.
+   The polecat flagged this for post-merge crew verification.
+
+   Issue: <source-issue-id>
+   Integration details: <from bead notes>
+
+   Please verify the integration works live after merge.
+   BODY
+   ```
+3. Add to merge summary: "⚠ Flagged for post-merge crew verification (integration-touching)"
+
+This ensures integration-touching merges are always followed up with live
+verification by the crew, closing the gap that polecat sandbox testing cannot cover.
+
+Track: review score, recommendation, issue count, duration, post-merge-verification flag."""
 
 [[steps]]
 id = "handle-failures"

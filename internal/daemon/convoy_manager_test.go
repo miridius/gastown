@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -2381,11 +2382,11 @@ func (s *infNaNStorage) GetAllEventsSince(_ context.Context, _ time.Time) ([]*be
 	return nil, s.err
 }
 
-// TestPollStore_InfNaNError_AdvancesHWMAndReturnsNil verifies that when
-// GetAllEventsSince returns a "+Inf is not a valid value for double" error
-// (corrupt Dolt row), pollStore advances the high-water mark to now and
-// returns nil (no error, no recovery mode).
-func TestPollStore_InfNaNError_AdvancesHWMAndReturnsNil(t *testing.T) {
+// TestPollStore_InfNaNError_NoRawSQL_FallsBackToStrandedScan verifies that
+// when GetAllEventsSince returns a "+Inf" error and the store does not
+// expose raw SQL (no beadsDBAccessor), pollStore marks the store in infStores,
+// logs once, and returns nil without triggering recovery mode.
+func TestPollStore_InfNaNError_NoRawSQL_FallsBackToStrandedScan(t *testing.T) {
 	for _, errMsg := range []string{
 		"Error 1366 (HY000): error: +Inf is not a valid value for double",
 		"Error 1366 (HY000): error: -Inf is not a valid value for double",
@@ -2406,11 +2407,9 @@ func TestPollStore_InfNaNError_AdvancesHWMAndReturnsNil(t *testing.T) {
 				logged = append(logged, fmt.Sprintf(format, args...))
 			}
 
-			before := time.Now()
 			m := NewConvoyManager(t.TempDir(), logger, "gt", 10*time.Minute, stores, nil, nil)
 
 			hadError := m.pollStoresSnapshot(m.stores)
-			after := time.Now()
 
 			// pollStoresSnapshot should report no error (corrupt row is handled)
 			if hadError {
@@ -2422,27 +2421,162 @@ func TestPollStore_InfNaNError_AdvancesHWMAndReturnsNil(t *testing.T) {
 				t.Errorf("recoveryMode should not be set for inf/nan error; logs: %v", logged)
 			}
 
-			// High-water mark for "hq" should have been advanced to approximately now
-			v, ok := m.lastEventIDs.Load("hq")
-			if !ok {
-				t.Fatal("expected HWM to be stored for hq")
-			}
-			hwm := v.(time.Time)
-			if hwm.Before(before) || hwm.After(after.Add(time.Second)) {
-				t.Errorf("HWM %v not in expected range [%v, %v]", hwm, before, after)
+			// Store should be marked in infStores for future polls
+			if _, ok := m.infStores.Load("hq"); !ok {
+				t.Error("expected hq to be marked in infStores")
 			}
 
-			// Should have logged a message about the skip
+			// Should have logged about the fallback being unavailable
 			foundMsg := false
 			for _, s := range logged {
-				if strings.Contains(s, "+Inf/NaN row detected") {
+				if strings.Contains(s, "raw SQL fallback unavailable") {
 					foundMsg = true
 					break
 				}
 			}
 			if !foundMsg {
-				t.Errorf("expected HWM-advance log message, got: %v", logged)
+				t.Errorf("expected 'raw SQL fallback unavailable' log message, got: %v", logged)
 			}
 		})
+	}
+}
+
+// TestPollStore_InfNaNError_SubsequentPollsSkipSilently verifies that after
+// the first +Inf detection marks a store in infStores, subsequent polls for
+// that store skip silently without logging (preventing ~100K error lines).
+func TestPollStore_InfNaNError_SubsequentPollsSkipSilently(t *testing.T) {
+	stub := &infNaNStorage{err: fmt.Errorf("Error 1366: '+Inf' is not a valid value for 'double'")}
+	stores := map[string]beadsdk.Storage{"hq": stub}
+
+	var logged []string
+	logger := func(format string, args ...interface{}) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+
+	m := NewConvoyManager(t.TempDir(), logger, "gt", 10*time.Minute, stores, nil, nil)
+
+	// First poll: detects +Inf, logs once
+	m.pollStoresSnapshot(m.stores)
+	firstLogCount := len(logged)
+	if firstLogCount == 0 {
+		t.Fatal("expected at least one log message on first poll")
+	}
+
+	// Second poll: should skip silently (no new log messages)
+	m.pollStoresSnapshot(m.stores)
+	if len(logged) != firstLogCount {
+		t.Errorf("expected no new log messages on second poll, got %d new messages: %v",
+			len(logged)-firstLogCount, logged[firstLogCount:])
+	}
+
+	// Third poll: still silent
+	m.pollStoresSnapshot(m.stores)
+	if len(logged) != firstLogCount {
+		t.Errorf("expected no new log messages on third poll, got %d new messages: %v",
+			len(logged)-firstLogCount, logged[firstLogCount:])
+	}
+}
+
+// infNaNStorageWithDB is a Storage stub that also implements beadsDBAccessor,
+// simulating a Dolt store with +Inf data that supports raw SQL fallback.
+type infNaNStorageWithDB struct {
+	beadsdk.Storage
+	err error
+	db  *sql.DB
+}
+
+func (s *infNaNStorageWithDB) GetAllEventsSince(_ context.Context, _ time.Time) ([]*beadsdk.Event, error) {
+	return nil, s.err
+}
+
+func (s *infNaNStorageWithDB) DB() *sql.DB {
+	return s.db
+}
+
+// TestPollStore_InfNaNError_WithRawSQL_UsesBoundedQuery verifies that when
+// GetAllEventsSince fails with +Inf and the store supports raw SQL, pollStore
+// falls back to a bounded query that excludes +Inf rows.
+func TestPollStore_InfNaNError_WithRawSQL_UsesBoundedQuery(t *testing.T) {
+	store, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a real issue to generate an event
+	issue := &beadsdk.Issue{
+		ID:     "test-inf1",
+		Title:  "test issue for +Inf fallback",
+		Status: beadsdk.StatusOpen,
+	}
+	if err := store.CreateIssue(ctx, issue, "tester"); err != nil {
+		t.Fatalf("failed to create issue: %v", err)
+	}
+
+	// Verify events exist via normal SDK path
+	sdkEvents, err := store.GetAllEventsSince(ctx, time.Unix(0, 0).UTC())
+	if err != nil {
+		t.Fatalf("GetAllEventsSince: %v", err)
+	}
+	if len(sdkEvents) == 0 {
+		t.Fatal("expected at least one event from SDK query")
+	}
+
+	// Get the raw DB to create the infNaNStorageWithDB stub
+	dbAccessor, ok := store.(beadsDBAccessor)
+	if !ok {
+		t.Skip("store does not support raw SQL access")
+	}
+	db := dbAccessor.DB()
+
+	// Create a stub that fails GetAllEventsSince but provides raw DB access
+	stub := &infNaNStorageWithDB{
+		err: fmt.Errorf("Error 1366 (HY000): '+Inf' is not a valid value for 'double'"),
+		db:  db,
+	}
+	stores := map[string]beadsdk.Storage{"hq": stub}
+
+	var logged []string
+	logger := func(format string, args ...interface{}) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+
+	m := NewConvoyManager(t.TempDir(), logger, "gt", 10*time.Minute, stores, nil, nil)
+	m.seeded.Store(true) // skip warm-up
+
+	hadError := m.pollStoresSnapshot(stores)
+
+	if hadError {
+		t.Errorf("expected no error, got hadError=true; logs: %v", logged)
+	}
+
+	if m.recoveryMode.Load() {
+		t.Error("recoveryMode should not be set")
+	}
+
+	// Store should be marked in infStores
+	if _, ok := m.infStores.Load("hq"); !ok {
+		t.Error("expected hq to be marked in infStores")
+	}
+
+	// Should have logged about using bounded query
+	foundMsg := false
+	for _, s := range logged {
+		if strings.Contains(s, "using bounded query") {
+			foundMsg = true
+			break
+		}
+	}
+	if !foundMsg {
+		t.Errorf("expected 'using bounded query' log message, got: %v", logged)
+	}
+
+	// HWM should have been advanced from the real events
+	v, loaded := m.lastEventIDs.Load("hq")
+	if !loaded {
+		t.Fatal("expected HWM to be stored for hq")
+	}
+	hwm := v.(time.Time)
+	if hwm.Equal(time.Unix(0, 0).UTC()) {
+		t.Error("HWM should have been advanced past epoch from real events")
 	}
 }

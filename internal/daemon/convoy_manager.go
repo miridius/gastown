@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -31,6 +32,11 @@ const (
 	// fires before the sling's bd dep add is visible in Dolt. See GH#2303.
 	convoyGracePeriod = 5 * time.Minute
 )
+
+// maxSafeTime is the upper bound used in bounded event queries to exclude
+// rows with +Inf created_at values. Any legitimate event will have a
+// created_at before 2100-01-01.
+var maxSafeTime = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // strandedConvoyInfo matches the JSON output of `gt convoy stranded --json`.
 type strandedConvoyInfo struct {
@@ -112,6 +118,12 @@ type ConvoyManager struct {
 	// been handled. This allows the 1s overlap window above without replaying
 	// the same lifecycle events on every poll.
 	processedLifecycleEvents sync.Map // map[string]bool
+
+	// infStores tracks store names where +Inf/NaN data has been detected in
+	// the events table. For these stores, pollStore uses a bounded raw SQL
+	// query instead of the SDK's GetAllEventsSince, which would fail on every
+	// poll cycle because +Inf > any high-water mark. See GH#3196.
+	infStores sync.Map // map[string]bool
 }
 
 // NewConvoyManager creates a new convoy manager.
@@ -290,19 +302,38 @@ func (m *ConvoyManager) pollStore(name string, store beadsdk.Storage, stores map
 		}
 	}
 
-	events, err := store.GetAllEventsSince(m.ctx, querySince)
-	if err != nil {
-		if isInfNaNError(err) {
-			// A corrupted row in the events table has +Inf/-Inf/NaN stored in a
-			// double column (e.g. created_at serialized from Go's zero time.Time).
-			// Advance the high-water mark to now so future polls skip past the
-			// bad row entirely. Events before now are missed, but the stranded
-			// convoy scanner will catch any completions that were lost.
-			now := time.Now().UTC()
-			m.lastEventIDs.Store(name, now)
-			m.logger("Convoy: event poll (%s): +Inf/NaN row detected, advancing HWM to %s to skip corrupt data", name, now.Format(time.RFC3339))
+	var events []*beadsdk.Event
+	var err error
+
+	// If this store previously had +Inf data, go straight to bounded raw SQL
+	// to avoid the failing SDK query on every poll cycle.
+	if _, isInf := m.infStores.Load(name); isInf {
+		events, err = m.getEventsSinceBounded(store, querySince)
+		if err != nil {
+			// Bounded query still failing — silently skip (already logged at detection).
 			return nil
 		}
+	} else {
+		events, err = store.GetAllEventsSince(m.ctx, querySince)
+		if err != nil && isInfNaNError(err) {
+			// The events table has +Inf/-Inf/NaN stored in a double column
+			// (e.g. created_at written from Go's zero time.Time via an old driver
+			// path). Since +Inf > any timestamp, advancing the high-water mark
+			// alone cannot skip the corrupt row — the unbounded SDK query will
+			// fail on every poll cycle. Fall back to a bounded raw SQL query
+			// (created_at < 2100-01-01) that excludes infinite values. GH#3196.
+			m.infStores.Store(name, true)
+			events, err = m.getEventsSinceBounded(store, querySince)
+			if err != nil {
+				// Bounded query also failed (store may not support raw SQL).
+				// Log once and rely on the stranded convoy scanner.
+				m.logger("Convoy: event poll (%s): +Inf/NaN data detected, raw SQL fallback unavailable — relying on stranded scan", name)
+				return nil
+			}
+			m.logger("Convoy: event poll (%s): +Inf/NaN data detected, using bounded query to skip corrupt rows", name)
+		}
+	}
+	if err != nil {
 		m.logger("Convoy: event poll error (%s): %v", name, err)
 		// Signal recovery mode so the stranded scan shortens its interval and
 		// retries quickly once Dolt comes back.
@@ -385,6 +416,61 @@ func (m *ConvoyManager) pollStore(name string, store beadsdk.Storage, stores map
 		convoy.CheckConvoysForIssue(m.ctx, hqStore, m.townRoot, issueID, "Convoy", m.logger, m.gtPath, m.isRigParked, resolver)
 	}
 	return nil
+}
+
+// getEventsSinceBounded queries events using raw SQL with an upper bound on
+// created_at to exclude rows where +Inf/-Inf/NaN is stored. This is used as a
+// fallback when the SDK's GetAllEventsSince fails due to corrupt data.
+// Returns an error if the store does not support raw SQL access.
+func (m *ConvoyManager) getEventsSinceBounded(store beadsdk.Storage, since time.Time) ([]*beadsdk.Event, error) {
+	dbAccessor, ok := store.(beadsDBAccessor)
+	if !ok || dbAccessor.DB() == nil {
+		return nil, fmt.Errorf("store does not support raw SQL access")
+	}
+
+	db := dbAccessor.DB()
+	rows, err := db.QueryContext(m.ctx, `
+		SELECT id, issue_id, event_type, actor, old_value, new_value, comment, created_at
+		FROM events
+		WHERE created_at > ? AND created_at < ?
+		UNION ALL
+		SELECT id, issue_id, event_type, actor, old_value, new_value, comment, created_at
+		FROM wisp_events
+		WHERE created_at > ? AND created_at < ?
+		ORDER BY created_at ASC
+	`, since, maxSafeTime, since, maxSafeTime)
+	if err != nil {
+		return nil, fmt.Errorf("bounded event query: %w", err)
+	}
+	defer rows.Close()
+
+	return scanEventsFromRows(rows)
+}
+
+// scanEventsFromRows converts sql.Rows into beadsdk.Event slices.
+// The column order must be: id, issue_id, event_type, actor, old_value,
+// new_value, comment, created_at (matching the events/wisp_events schema).
+func scanEventsFromRows(rows *sql.Rows) ([]*beadsdk.Event, error) {
+	var events []*beadsdk.Event
+	for rows.Next() {
+		var event beadsdk.Event
+		var oldValue, newValue, comment sql.NullString
+		if err := rows.Scan(&event.ID, &event.IssueID, &event.EventType, &event.Actor,
+			&oldValue, &newValue, &comment, &event.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		if oldValue.Valid {
+			event.OldValue = &oldValue.String
+		}
+		if newValue.Valid {
+			event.NewValue = &newValue.String
+		}
+		if comment.Valid {
+			event.Comment = &comment.String
+		}
+		events = append(events, &event)
+	}
+	return events, rows.Err()
 }
 
 // isInfNaNError reports whether err is a Dolt/SQL error about an invalid float

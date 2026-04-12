@@ -776,6 +776,12 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 		style.PrintWarning("could not copy overlay files: %v", err)
 	}
 
+	// Ensure .gitignore has all required patterns for polecat worktrees (GH #3397).
+	if err := rig.EnsurePolecatGitignorePatterns(clonePath); err != nil {
+		style.PrintWarning("could not update .gitignore: %v", err)
+	}
+
+	// Defense-in-depth: also write to local git exclude.
 	if err := rig.EnsureLocalExcludePatterns(clonePath); err != nil {
 		style.PrintWarning("could not update local git excludes: %v", err)
 	}
@@ -962,7 +968,15 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 		style.PrintWarning("could not copy overlay files: %v", err)
 	}
 
-	// Keep worktree runtime ignores local so the tracked tree stays clean.
+	// Ensure .gitignore has all required patterns for polecat worktrees.
+	// Uses polecat-specific patterns that include .beads/ — safe because polecats
+	// use shared beads via redirect, not local bd sync. Without this,
+	// .beads/backup/ files leak into PRs (GH #3397).
+	if err := rig.EnsurePolecatGitignorePatterns(clonePath); err != nil {
+		style.PrintWarning("could not update .gitignore: %v", err)
+	}
+
+	// Defense-in-depth: also write to local git exclude (per-worktree, never committed).
 	if err := rig.EnsureLocalExcludePatterns(clonePath); err != nil {
 		style.PrintWarning("could not update local git excludes: %v", err)
 	}
@@ -1467,7 +1481,12 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 		style.PrintWarning("could not copy overlay files: %v", err)
 	}
 
-	// Keep worktree runtime ignores local so the tracked tree stays clean.
+	// Ensure .gitignore has all required patterns for polecat worktrees (GH #3397).
+	if err := rig.EnsurePolecatGitignorePatterns(newClonePath); err != nil {
+		style.PrintWarning("could not update .gitignore: %v", err)
+	}
+
+	// Defense-in-depth: also write to local git exclude.
 	if err := rig.EnsureLocalExcludePatterns(newClonePath); err != nil {
 		style.PrintWarning("could not update local git excludes: %v", err)
 	}

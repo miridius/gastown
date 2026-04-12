@@ -543,6 +543,105 @@ func TestGasTownLocalExcludePatterns_IncludesBeads(t *testing.T) {
 	}
 }
 
+// TestEnsurePolecatGitignorePatterns_IncludesBeads verifies that polecat-specific
+// gitignore patterns include .beads/ (GH #3397). Polecats use shared beads via
+// redirect, so .beads/ in the tracked .gitignore is safe and prevents
+// .beads/backup/ files from leaking into PRs.
+func TestEnsurePolecatGitignorePatterns_IncludesBeads(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := EnsurePolecatGitignorePatterns(tmpDir)
+	if err != nil {
+		t.Fatalf("EnsurePolecatGitignorePatterns() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+
+	// Must include .beads/ (the whole point of the polecat-specific function)
+	if !containsLine(string(content), ".beads/") {
+		t.Error(".gitignore must contain .beads/ for polecat worktrees (GH #3397)")
+	}
+
+	// Must also include all standard Gas Town patterns
+	for _, pattern := range gasTownIgnorePatterns() {
+		if !containsLine(string(content), pattern) {
+			t.Errorf(".gitignore missing standard pattern %q", pattern)
+		}
+	}
+}
+
+// TestEnsurePolecatGitignorePatterns_SkipsExistingBeads verifies that .beads/
+// is not duplicated when already present in .gitignore.
+func TestEnsurePolecatGitignorePatterns_SkipsExistingBeads(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	existing := ".beads/\n.runtime/\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(existing), 0644); err != nil {
+		t.Fatalf("Failed to create .gitignore: %v", err)
+	}
+
+	err := EnsurePolecatGitignorePatterns(tmpDir)
+	if err != nil {
+		t.Fatalf("EnsurePolecatGitignorePatterns() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+
+	// .beads/ should appear exactly once
+	count := countOccurrences(string(content), ".beads/")
+	if count != 1 {
+		t.Errorf(".beads/ appears %d times, expected 1", count)
+	}
+}
+
+// TestPolecatGitignorePatterns_SupersetOfStandard verifies that polecat patterns
+// are a strict superset of standard patterns (all standard patterns + .beads/).
+func TestPolecatGitignorePatterns_SupersetOfStandard(t *testing.T) {
+	standard := gasTownIgnorePatterns()
+	polecat := polecatGitignorePatterns()
+
+	// Polecat patterns must include all standard patterns
+	standardSet := make(map[string]bool)
+	for _, p := range standard {
+		standardSet[p] = true
+	}
+	for p := range standardSet {
+		found := false
+		for _, pp := range polecat {
+			if pp == p {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("polecatGitignorePatterns() missing standard pattern %q", p)
+		}
+	}
+
+	// Polecat patterns must include .beads/
+	beadsFound := false
+	for _, p := range polecat {
+		if p == ".beads/" {
+			beadsFound = true
+			break
+		}
+	}
+	if !beadsFound {
+		t.Error("polecatGitignorePatterns() must include .beads/ (GH #3397)")
+	}
+
+	// Standard patterns must NOT include .beads/ (regression guard — see overlay.go)
+	if standardSet[".beads/"] {
+		t.Error("gasTownIgnorePatterns() must NOT include .beads/ — use polecatGitignorePatterns() for polecats")
+	}
+}
+
 // Helper functions
 
 func containsLine(content, pattern string) bool {

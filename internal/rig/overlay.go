@@ -74,8 +74,6 @@ func CopyOverlay(rigPath, destPath string) error {
 // EnsureGitignorePatterns ensures the .gitignore has required Gas Town patterns.
 // This is called after cloning to add patterns that may be missing from the source repo.
 func EnsureGitignorePatterns(worktreePath string) error {
-	gitignorePath := filepath.Join(worktreePath, ".gitignore")
-
 	// Required patterns for Gas Town worktrees.
 	// DO NOT add ".beads/" here. Beads manages its own .beads/.gitignore
 	// (created by bd init) which selectively ignores runtime files.
@@ -88,7 +86,31 @@ func EnsureGitignorePatterns(worktreePath string) error {
 	// but Cursor still creates .claude/ inside worktrees at runtime. The narrow
 	// .claude/commands/ pattern missed other Cursor-created files, causing gt done
 	// to fail with "uncommitted changes would be lost" on untracked .claude/ entries.
-	requiredPatterns := gasTownIgnorePatterns()
+	return ensureGitignorePatternsFromList(worktreePath, gasTownIgnorePatterns())
+}
+
+// polecatGitignorePatterns returns patterns for polecat worktree .gitignore files.
+// This is a superset of gasTownIgnorePatterns() that also includes .beads/.
+// Polecats use shared beads via redirect (not local bd sync), so .beads/ in
+// the tracked .gitignore is safe and prevents .beads/backup/ files from being
+// committed into PRs (GH #3397).
+func polecatGitignorePatterns() []string {
+	patterns := gasTownIgnorePatterns()
+	return append(patterns, ".beads/")
+}
+
+// EnsurePolecatGitignorePatterns ensures the .gitignore has all required patterns
+// for polecat worktrees. This is a superset of EnsureGitignorePatterns that also
+// includes .beads/ — safe for polecats because they use shared beads via redirect,
+// not local bd sync. Without this, .beads/backup/ files leak into PRs (GH #3397).
+func EnsurePolecatGitignorePatterns(worktreePath string) error {
+	return ensureGitignorePatternsFromList(worktreePath, polecatGitignorePatterns())
+}
+
+// ensureGitignorePatternsFromList ensures the given patterns are present in the
+// worktree's .gitignore file, appending any that are missing.
+func ensureGitignorePatternsFromList(worktreePath string, requiredPatterns []string) error {
+	gitignorePath := filepath.Join(worktreePath, ".gitignore")
 
 	// Read existing gitignore content
 	var existingContent string

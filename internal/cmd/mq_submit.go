@@ -161,13 +161,9 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 	// Initialize beads for looking up source issue
 	bd := beads.New(cwd)
 
-	// Load rig settings for integration branch detection and review config.
-	var reviewEnabled bool
+	// Load rig settings for integration branch detection.
 	rigPath := filepath.Join(townRoot, rigName)
 	settingsPath := filepath.Join(rigPath, "settings", "config.json")
-	if rigSettings, err := config.LoadRigSettings(settingsPath); err == nil {
-		reviewEnabled = rigSettings.IsReviewEnabled()
-	}
 
 	// Determine target branch
 	// Priority: explicit --epic > formula_vars base_branch > integration branch auto-detect > rig default.
@@ -273,9 +269,6 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 	} else {
 		// Create MR bead (ephemeral wisp - will be cleaned up after merge)
 		labels := []string{"gt:merge-request"}
-		if reviewEnabled {
-			labels = append(labels, "meerkat:review")
-		}
 
 		mrIssue, err = bd.Create(beads.CreateOptions{
 			Title:       title,
@@ -289,10 +282,7 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		}
 
 		// Nudge refinery to pick up the new MR.
-		// Skip nudge when review is enabled — MR is parked for meerkat review first.
-		if !reviewEnabled {
-			nudgeRefinery(rigName, "MERGE_READY received - check inbox for pending work")
-		}
+		nudgeRefinery(rigName, "MERGE_READY received - check inbox for pending work")
 
 		// GH#2599: Back-link source issue to MR bead for discoverability.
 		if issueID != "" {
@@ -345,9 +335,6 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Worker: %s\n", worker)
 	}
 	fmt.Printf("  Priority: P%d\n", priority)
-	if reviewEnabled {
-		fmt.Printf("\n%s\n", style.Dim.Render("Submitted for review in meerkat. Refinery will process after approval."))
-	}
 
 	// Auto-cleanup for polecats: if this is a polecat branch and cleanup not disabled,
 	// send lifecycle request and wait for termination

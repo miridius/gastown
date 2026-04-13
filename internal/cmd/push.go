@@ -32,8 +32,8 @@ var pushCmd = &cobra.Command{
 For review-enabled rigs (review.enabled in settings/config.json):
   1. Creates a branch: crew/<worker>/<slug>@<timestamp>
   2. Pushes the branch to origin
-  3. Creates an MR bead with gt:merge-request + meerkat:review labels
-  4. MR appears in meerkat's review queue for human review
+  3. Creates an MR bead with gt:merge-request label
+  4. MR enters the merge queue for processing
 
 For non-review rigs:
   1. Pushes directly to the default branch (current behavior)
@@ -209,7 +209,7 @@ func pushForReview(g *git.Git, cwd, townRoot, rigName, rigPath string) error {
 	}
 
 	if mrIssue == nil {
-		labels := []string{"gt:merge-request", "meerkat:review"}
+		labels := []string{"gt:merge-request"}
 
 		var err error
 		mrIssue, err = bd.Create(beads.CreateOptions{

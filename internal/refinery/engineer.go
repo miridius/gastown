@@ -1565,12 +1565,6 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 			continue
 		}
 
-		// Skip MRs awaiting meerkat review.
-		if beads.HasLabel(issue, "meerkat:review") {
-			_, _ = fmt.Fprintf(e.output, "[Engineer] Skipping MR %s: awaiting meerkat review\n", issue.ID)
-			continue
-		}
-
 		fields := beads.ParseMRFields(issue)
 		if fields == nil {
 			continue // Skip issues without MR fields

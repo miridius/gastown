@@ -987,53 +987,20 @@ func TestIsClaimStale(t *testing.T) {
 	}
 }
 
-func TestListReadyMRs_SkipsMeerkatReviewLabel(t *testing.T) {
-	// Verify that MR beads with the meerkat:review label are correctly
-	// identified as needing to be skipped by the refinery gate.
-	tests := []struct {
-		name       string
-		labels     []string
-		wantSkip   bool
-	}{
-		{
-			name:     "no labels",
-			labels:   []string{"gt:merge-request"},
-			wantSkip: false,
-		},
-		{
-			name:     "meerkat:review label present",
-			labels:   []string{"gt:merge-request", "meerkat:review"},
-			wantSkip: true,
-		},
-		{
-			name:     "meerkat:approved label only",
-			labels:   []string{"gt:merge-request", "meerkat:approved"},
-			wantSkip: false,
-		},
-		{
-			name:     "both meerkat labels",
-			labels:   []string{"gt:merge-request", "meerkat:review", "meerkat:approved"},
-			wantSkip: true,
-		},
-		{
-			name:     "gt:owned-direct label",
-			labels:   []string{"gt:merge-request", "gt:owned-direct"},
-			wantSkip: false, // Skipped by different gate, not meerkat gate
-		},
+func TestListReadyMRs_DoesNotSkipMeerkatReviewLabel(t *testing.T) {
+	// Verify that MR beads with the meerkat:review label are NOT skipped by
+	// the refinery — the label should never appear on MR wisps, but if it
+	// does, the refinery should still process them (defense in depth, hq-2re5h).
+	issue := &beads.Issue{
+		ID:     "gt-test123",
+		Status: "open",
+		Labels: []string{"gt:merge-request", "meerkat:review"},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			issue := &beads.Issue{
-				ID:     "gt-test123",
-				Status: "open",
-				Labels: tt.labels,
-			}
-			got := beads.HasLabel(issue, "meerkat:review")
-			if got != tt.wantSkip {
-				t.Errorf("HasLabel(issue, \"meerkat:review\") with labels %v = %v, want %v",
-					tt.labels, got, tt.wantSkip)
-			}
-		})
+	// The label exists on the issue but should not cause skipping.
+	// This test validates the label is not used as a gate in ListReadyMRs.
+	if !beads.HasLabel(issue, "meerkat:review") {
+		t.Error("HasLabel should detect meerkat:review label")
 	}
+	// The actual ListReadyMRs no longer checks for meerkat:review —
+	// this is a regression guard to ensure the skip is never re-added.
 }

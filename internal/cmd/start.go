@@ -245,6 +245,24 @@ func runStart(cmd *cobra.Command, args []string) error {
 		_, _ = doltserver.EnsureAllMetadata(townRoot)
 	}
 
+	// Phase 1b: Start Controlle Telegram gateway BEFORE agents.
+	// Agents may depend on Controlle for Telegram communication. (gt-cdev)
+	patrolConfig := daemon.LoadPatrolConfig(townRoot)
+	if patrolConfig != nil && patrolConfig.Patrols != nil && patrolConfig.Patrols.Controlle != nil &&
+		patrolConfig.Patrols.Controlle.Enabled {
+		mgr := daemon.NewControlleServerManager(townRoot, patrolConfig.Patrols.Controlle, func(format string, v ...interface{}) {
+			fmt.Printf("  "+format+"\n", v...)
+		})
+		running, _ := mgr.Status()
+		if running {
+			fmt.Printf("  %s Controlle bot already running\n", style.Dim.Render("○"))
+		} else if err := mgr.Start(); err != nil {
+			fmt.Printf("  %s Controlle bot failed: %v\n", style.Dim.Render("○"), err)
+		} else {
+			fmt.Printf("  %s Controlle bot started\n", style.Bold.Render("✓"))
+		}
+	}
+
 	// Phase 2: Start all agents in parallel (Dolt is now ready)
 	var wg sync.WaitGroup
 	var mu sync.Mutex // Protects stdout

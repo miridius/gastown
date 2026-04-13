@@ -60,7 +60,7 @@ type Daemon struct {
 	convoyManager *ConvoyManager
 	beadsStores   map[string]beadsdk.Storage
 	doltServer       *DoltServerManager
-	controlleManager *ControlleManager
+	controlleManager *ControlleServerManager
 	krcPruner        *KRCPruner
 
 	// disabledPatrols is loaded from town settings (disabled_patrols field).
@@ -259,11 +259,11 @@ func New(config *Config) (*Daemon, error) {
 	}
 
 	// Initialize Controlle manager if configured
-	var controlleManager *ControlleManager
+	var controlleManager *ControlleServerManager
 	if patrolConfig != nil && patrolConfig.Patrols != nil && patrolConfig.Patrols.Controlle != nil {
-		controlleManager = NewControlleManager(config.TownRoot, patrolConfig.Patrols.Controlle, logger.Printf)
+		controlleManager = NewControlleServerManager(config.TownRoot, patrolConfig.Patrols.Controlle, logger.Printf)
 		if controlleManager.IsEnabled() {
-			logger.Printf("Controlle bot management enabled")
+			logger.Printf("Controlle bot management enabled (health check interval %v)", controlleManager.HealthCheckInterval())
 		}
 	}
 
@@ -481,6 +481,18 @@ func (d *Daemon) Run() (err error) {
 		d.logger.Printf("Dolt health check ticker started (interval %v)", interval)
 	}
 
+	// Start dedicated Controlle health check ticker if configured.
+	// Detects bot crashes independently of the 3-minute heartbeat.
+	var controlleHealthTicker *time.Ticker
+	var controlleHealthChan <-chan time.Time
+	if d.controlleManager != nil && d.controlleManager.IsEnabled() {
+		interval := d.controlleManager.HealthCheckInterval()
+		controlleHealthTicker = time.NewTicker(interval)
+		controlleHealthChan = controlleHealthTicker.C
+		defer controlleHealthTicker.Stop()
+		d.logger.Printf("Controlle health check ticker started (interval %v)", interval)
+	}
+
 	// Start dedicated Dolt remotes push ticker if configured.
 	// This runs at a lower frequency (default 15 min) than the heartbeat (3 min)
 	// to periodically push databases to their git remotes.
@@ -641,6 +653,13 @@ func (d *Daemon) Run() (err error) {
 			// of the 3-minute general heartbeat.
 			if !d.isShutdownInProgress() {
 				d.ensureDoltServerRunning()
+			}
+
+		case <-controlleHealthChan:
+			// Dedicated Controlle health check — fast crash detection independent
+			// of the 3-minute general heartbeat.
+			if !d.isShutdownInProgress() {
+				d.ensureControlleRunning()
 			}
 
 		case <-doltRemotesChan:
@@ -2008,6 +2027,15 @@ func (d *Daemon) shutdown(state *State) error { //nolint:unparam // error return
 			d.logger.Printf("Warning: failed to stop Dolt server: %v", err)
 		} else {
 			d.logger.Println("Dolt server stopped")
+		}
+	}
+
+	// Stop Controlle bot if we're managing it
+	if d.controlleManager != nil && d.controlleManager.IsEnabled() {
+		if err := d.controlleManager.Stop(); err != nil {
+			d.logger.Printf("Warning: failed to stop Controlle bot: %v", err)
+		} else {
+			d.logger.Println("Controlle bot stopped")
 		}
 	}
 

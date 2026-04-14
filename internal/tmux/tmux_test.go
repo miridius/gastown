@@ -1703,6 +1703,50 @@ func TestNudgeSession_WithRetry(t *testing.T) {
 	}
 }
 
+// TestNudgeSession_MultiPaneWithDeclaredPaneID verifies the fix for gt-sxqv:
+// when a session has GT_PANE_ID set and multiple panes exist, NudgeSession
+// must build the send-keys target using the pane ID directly (e.g. "%28"),
+// not as "session:%pane_id" — tmux parses the latter as session:window-spec
+// and fails with "can not find window: %28".
+func TestNudgeSession_MultiPaneWithDeclaredPaneID(t *testing.T) {
+	tm := newTestTmux(t)
+	sessionName := "gt-test-nudge-multipane-" + fmt.Sprintf("%d", time.Now().UnixNano()%10000)
+
+	_ = tm.KillSession(sessionName)
+
+	// Create session running a shell (simulates an agent in pane 0).
+	if err := tm.NewSession(sessionName, os.TempDir()); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer func() { _ = tm.KillSession(sessionName) }()
+
+	// Give shell a moment to initialize
+	time.Sleep(200 * time.Millisecond)
+
+	// Capture pane 0's ID and split so the session is multi-pane.
+	paneID, err := tm.GetPaneID(sessionName)
+	if err != nil {
+		t.Fatalf("GetPaneID: %v", err)
+	}
+	if !strings.HasPrefix(paneID, "%") {
+		t.Fatalf("expected pane ID to start with %%, got %q", paneID)
+	}
+	if _, err := tm.run("split-window", "-t", sessionName, "-d"); err != nil {
+		t.Fatalf("split-window: %v", err)
+	}
+
+	// Declare pane 0 as the agent pane (ZFC path, gt-qmsx).
+	if err := tm.SetEnvironment(sessionName, "GT_PANE_ID", paneID); err != nil {
+		t.Fatalf("SetEnvironment: %v", err)
+	}
+
+	// NudgeSession must succeed. Before the gt-sxqv fix, this produced
+	// target="<session>:%N" and tmux returned "can not find window: %N".
+	if err := tm.NudgeSession(sessionName, "test message"); err != nil {
+		t.Errorf("NudgeSession on multi-pane session with declared pane ID: %v", err)
+	}
+}
+
 // TestAdaptiveTextDelay verifies the delay scaling logic for post-text delivery.
 func TestAdaptiveTextDelay(t *testing.T) {
 	t.Parallel()
